@@ -1,5 +1,6 @@
 import psycopg2
 import os
+import pdb
 import io
 import sys
 import json
@@ -599,7 +600,7 @@ class pg_engine(object):
 			columns=table["columns"]
 			
 			ddl_head="CREATE TABLE "+'"'+table["name"]+'" ('
-			ddl_tail=");"
+			ddl_tail=") diststyle all;"
 			ddl_columns=[]
 			ddl_enum=[]
 			for column in columns:

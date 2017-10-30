@@ -1,5 +1,6 @@
 import io
 import pymysql
+import pdb
 import codecs
 import binascii
 from pymysqlreplication import BinLogStreamReader
@@ -692,7 +693,7 @@ class mysql_engine(object):
 				self.logger.debug("estimating rows in "+table_name)
 				sql_count=""" 
 					SELECT 
-						table_rows,
+						(select count(1) from """+table_name+""") as table_rows,
 						CASE
 							WHEN avg_row_length>0
 							then
@@ -711,6 +712,8 @@ class mysql_engine(object):
 				self.mysql_con.my_cursor.execute(sql_count, (self.mysql_con.my_database, table_name))
 				count_rows=self.mysql_con.my_cursor.fetchone()
 				total_rows=count_rows["table_rows"]
+				if total_rows == 0:
+				  continue
 				copy_limit=int(count_rows["copy_limit"])
 				if copy_limit == 0:
 					copy_limit=1000000
@@ -765,7 +768,7 @@ class mysql_engine(object):
 					ins_arg.append(columns_ins)
 					ins_arg.append(copy_limit)
 					self.insert_table_data(pg_engine, ins_arg)
-			except:
+			except Exception as e:
 				self.logger.info("the table %s does not exist" %(table_name))
 		if lock_tables:
 			self.unlock_tables()
