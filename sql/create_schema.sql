@@ -9,10 +9,10 @@ CREATE OR REPLACE VIEW sch_chameleon.v_version
 
 --TYPES
 CREATE TYPE sch_chameleon.en_src_status
-	AS ENUM ('ready', 'initialising','initialised','stopped','running','error');
+	AS text ('ready', 'initialising','initialised','stopped','running','error');
 
 CREATE TYPE sch_chameleon.en_binlog_event 
-	AS ENUM ('delete', 'update', 'insert','ddl');
+	AS text ('delete', 'update', 'insert','ddl');
 
 --TABLES/INDICES	
 CREATE TABLE sch_chameleon.t_sources
