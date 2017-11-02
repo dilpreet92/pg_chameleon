@@ -219,7 +219,6 @@ class pg_engine(object):
 				; 
 			"""
 			self.pg_conn.pgsql_cur.execute(sql_add, (source_name, dest_schema))
-			source_add = self.pg_conn.pgsql_cur.fetchone()
 			sql_get = """
 				SELECT 
 				  i_id_source
@@ -229,25 +228,49 @@ class pg_engine(object):
 					t_source=%s
 				;
 			"""
-			self.pg_conn.pgsql_cur.execute(sql_get, (source_name))
+			self.pg_conn.pgsql_cur.execute(sql_get, (source_name, ))
 			source_get = self.pg_conn.pgsql_cur.fetchone()
 			sql_update = """
 				UPDATE sch_chameleon.t_sources
-					SET v_log_table=ARRAY[
-						't_log_replica_1_src_%s',
-						't_log_replica_2_src_%s'
-					]
+					SET v_log_table='["t_log_replica_1_src_%s","t_log_replica_2_src_%s"]'
 				WHERE i_id_source=%s
 				;
 			"""
 			self.pg_conn.pgsql_cur.execute(sql_update,  (source_get[0], source_get[0], source_get[0]))
-			
-			sql_parts = """SELECT sch_chameleon.fn_refresh_parts() ;"""
-			self.pg_conn.pgsql_cur.execute(sql_parts)
+			self.refresh_parts()
+			# sql_parts = """SELECT sch_chameleon.fn_refresh_parts() ;"""
+			# self.pg_conn.pgsql_cur.execute(sql_parts)
 			
 		else:
 			print("Source %s already registered." % source_name)
 		sys.exit()
+
+	def refresh_parts(self):
+		sql_vlog_table = """
+			SELECT v_log_table FROM sch_chameleon.t_sources
+		"""
+		self.pg_conn.pgsql_cur.execute(sql_vlog_table)
+		vlog_table = self.pg_conn.pgsql_cur.fetchone()
+		for i in vlog_table:
+			sql_vlog_create = """
+				CREATE TABLE IF NOT EXISTS sch_chameleon.%I
+		      (
+		      CONSTRAINT pk_%s PRIMARY KEY (i_id_event),
+		        CONSTRAINT fk_%s FOREIGN KEY (i_id_batch) 
+		        REFERENCES  sch_chameleon.t_replica_batch (i_id_batch)
+		      )
+		    INHERITS (sch_chameleon.t_log_replica)
+		      ;
+			"""
+			self.pg_conn.pgsql_cur.execute(sql_vlog_create, (i, i, i))
+			sql_create_index = """
+				CREATE INDEX IF NOT EXISTS idx_id_batch_%s 
+		      ON sch_chameleon.%I (i_id_batch)
+		     ;
+			"""
+			self.pg_conn.pgsql_cur.execute(sql_create_index, (i, i))
+
+
 	
 	def get_source_status(self, source_name):
 		"""
