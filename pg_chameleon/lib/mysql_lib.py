@@ -674,8 +674,7 @@ class mysql_engine(object):
 		"""
 		out_file='%s/output_copy.csv' % self.out_dir
 		self.logger.info("locking the tables")
-		if lock_tables:
-			self.lock_tables()
+		
 		table_list = []
 		if pg_engine.table_limit[0] == '*':
 			for table_name in self.my_tables:
@@ -683,6 +682,8 @@ class mysql_engine(object):
 		else:
 			table_list = pg_engine.table_limit
 		for table_name in table_list:
+			if lock_tables:
+				self.lock_table(table_name)
 			slice_insert=[]
 			
 			try:
@@ -760,6 +761,8 @@ class mysql_engine(object):
 					self.print_progress(slice+1,total_slices, table_name)
 					slice+=1
 					csv_file.close()
+				if lock_tables:
+					self.unlock_table()
 				self.mysql_con.disconnect_db_ubf()
 				if len(slice_insert)>0:
 					ins_arg=[]
@@ -770,8 +773,6 @@ class mysql_engine(object):
 					self.insert_table_data(pg_engine, ins_arg)
 			except Exception as e:
 				self.logger.info("the table %s does not exist" %(table_name))
-		if lock_tables:
-			self.unlock_tables()
 		try:
 			remove(out_file)
 		except:
@@ -787,21 +788,19 @@ class mysql_engine(object):
 		self.master_status=self.mysql_con.my_cursor.fetchall()		
 		
 		
-	def lock_tables(self):
+	def lock_table(self, table_name):
 		""" 
 			The method locks the tables using FLUSH TABLES WITH READ LOCK. The 
 			tables locked are limited to the tables found by get_table_metadata.
 			After locking the tables the metod gets the master's coordinates with get_master_status.
 		"""
-		self.locked_tables=[]
-		for table_name in self.my_tables:
-			table=self.my_tables[table_name]
-			self.locked_tables.append(table["name"])
-		t_sql_lock="FLUSH TABLES "+", ".join(self.locked_tables)+" WITH READ LOCK;"
-		self.mysql_con.my_cursor.execute(t_sql_lock)
+		t_sql_lock="""
+			LOCK TABLES %s READ;
+		"""
+		self.mysql_con.my_cursor.execute(t_sql_lock, (table_name, ))
 		self.get_master_status()
 	
-	def unlock_tables(self):
+	def unlock_table(self):
 		"""
 			The method unlocks the tables previously locked by lock_tables
 		"""
