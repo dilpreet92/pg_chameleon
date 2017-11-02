@@ -216,12 +216,21 @@ class pg_engine(object):
 						%s,
 						%s
 					)
-				RETURNING 
-					i_id_source
 				; 
 			"""
-			self.pg_conn.pgsql_cur.execute(sql_add, (source_name, dest_schema ))
+			self.pg_conn.pgsql_cur.execute(sql_add, (source_name, dest_schema))
 			source_add = self.pg_conn.pgsql_cur.fetchone()
+			sql_get = """
+				SELECT 
+				  i_id_source
+				FROM
+					sch_chameleon.t_sources 
+				WHERE
+					t_source=%s
+				;
+			"""
+			self.pg_conn.pgsql_cur.execute(sql_get, (source_name))
+			source_get = self.pg_conn.pgsql_cur.fetchone()
 			sql_update = """
 				UPDATE sch_chameleon.t_sources
 					SET v_log_table=ARRAY[
@@ -231,7 +240,7 @@ class pg_engine(object):
 				WHERE i_id_source=%s
 				;
 			"""
-			self.pg_conn.pgsql_cur.execute(sql_update,  (source_add[0],source_add[0], source_add[0] ))
+			self.pg_conn.pgsql_cur.execute(sql_update,  (source_get[0], source_get[0], source_get[0]))
 			
 			sql_parts = """SELECT sch_chameleon.fn_refresh_parts() ;"""
 			self.pg_conn.pgsql_cur.execute(sql_parts)
@@ -307,11 +316,12 @@ class pg_engine(object):
 				enm_status=%s
 			WHERE
 				t_source=%s
-			RETURNING i_id_source,t_dest_schema
 				;
 			"""
 		source_name = self.pg_conn.global_conf.source_name
 		self.pg_conn.pgsql_cur.execute(sql_source, (source_status, source_name))
+		sql_source="SELECT i_id_source,t_dest_schema FROM sch_chameleon.t_sources WHERE t_source='" + source_name + "';"
+		self.pg_conn.pgsql_cur.execute(sql_source)
 		source_data = self.pg_conn.pgsql_cur.fetchone()
 		try:
 			self.i_id_source = source_data[0]
@@ -385,17 +395,10 @@ class pg_engine(object):
 							%s,
 							%s,
 							%s,
-							ARRAY[%s],
+							%s,
 							%s,
 							%s
-						)
-					ON CONFLICT (i_id_source,v_table_name,v_schema_name)
-						DO UPDATE 
-							SET 
-								v_table_pkey=EXCLUDED.v_table_pkey,
-								t_binlog_name = EXCLUDED.t_binlog_name,
-								i_binlog_position = EXCLUDED.i_binlog_position
-										;
+						);
 								"""
 				self.pg_conn.pgsql_cur.execute(sql_insert, (
 					self.i_id_source, 
@@ -621,7 +624,7 @@ class pg_engine(object):
 				if column_type=='numeric':
 					column_type=column_type+"("+str(column["numeric_precision"])+","+str(column["numeric_scale"])+")"
 				if column["extra"]=="auto_increment":
-					column_type="bigserial"
+					column_type="bigint"
 				ddl_columns.append('"'+column["column_name"]+'" '+column_type+" "+col_is_null )
 			def_columns=str(',').join(ddl_columns)
 			self.type_ddl[table["name"]]=ddl_enum
@@ -1806,23 +1809,23 @@ class pg_engine(object):
 		"""
 			the function checks if there is any reindex running and holds for  the given number of seconds 
 		"""
-		sql_check="""
-			SELECT 
-				count(*) 
-			FROM 
-				pg_stat_activity 
-			WHERE 
-					datname=current_database() 
-				AND	application_name = ANY(%s) ;
-		"""
-		while True:
-			self.pg_conn.pgsql_cur.execute(sql_check, (self.reindex_app_names, ))
-			reindex_tup = self.pg_conn.pgsql_cur.fetchone()
-			reindex_cnt = reindex_tup[0]
-			if reindex_cnt == 0:
-				break;
-			self.logger.info("reindex detected, sleeping %s second(s)" % (self.sleep_on_reindex,))
-			time.sleep(self.sleep_on_reindex)
+		# sql_check="""
+		# 	SELECT 
+		# 		count(*) 
+		# 	FROM 
+		# 		pg_stat_activity 
+		# 	WHERE 
+		# 			datname=current_database() 
+		# 		AND	application_name = ANY(%s) ;
+		# """
+		# while True:
+		# 	self.pg_conn.pgsql_cur.execute(sql_check, (self.reindex_app_names, ))
+		# 	reindex_tup = self.pg_conn.pgsql_cur.fetchone()
+		# 	reindex_cnt = reindex_tup[0]
+		# 	if reindex_cnt == 0:
+		# 		break;
+		# 	self.logger.info("reindex detected, sleeping %s second(s)" % (self.sleep_on_reindex,))
+		# 	time.sleep(self.sleep_on_reindex)
 	
 	def set_consistent_table(self, table):
 		"""
