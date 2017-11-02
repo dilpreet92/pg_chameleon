@@ -1,5 +1,5 @@
 --CREATE SCHEMA
-CREATE SCHEMA IF NOT EXISTS sch_chameleon;
+
 
 --VIEWS
 CREATE OR REPLACE VIEW sch_chameleon.v_version 

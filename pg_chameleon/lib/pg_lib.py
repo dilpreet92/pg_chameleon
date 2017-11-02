@@ -772,6 +772,10 @@ class pg_engine(object):
 					file_schema=open(self.sql_dir+script_schema, 'rb')
 					sql_schema=file_schema.read()
 					file_schema.close()
+					sql_create_schema = """
+						CREATE SCHEMA IF NOT EXISTS sch_chameleon;
+					"""
+					self.pg_conn.pgsql_cur.execute(sql_create_schema)
 					self.pg_conn.pgsql_cur.execute(sql_schema)
 		else:
 			self.logger.error("The service schema is already created")
