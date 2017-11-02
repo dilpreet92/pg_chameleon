@@ -257,20 +257,20 @@ class pg_engine(object):
 				sql_vlog_create = """
 					CREATE TABLE IF NOT EXISTS sch_chameleon.%s
 			      (
-			      CONSTRAINT pk_%s PRIMARY KEY (i_id_event),
+			      	CONSTRAINT pk_%s PRIMARY KEY (i_id_event),
 			        CONSTRAINT fk_%s FOREIGN KEY (i_id_batch) 
-			        REFERENCES  sch_chameleon.t_replica_batch (i_id_batch)
+			        	REFERENCES  sch_chameleon.t_replica_batch (i_id_batch),
+			        LIKE (sch_chameleon.t_log_replica)
 			      )
-			    INHERITS (sch_chameleon.t_log_replica)
 			      ;
 				"""
-				self.pg_conn.pgsql_cur.execute(sql_vlog_create, (j, j, j))
+				self.pg_conn.pgsql_cur.execute(sql_vlog_create % (j, j, j))
 				sql_create_index = """
 					CREATE INDEX IF NOT EXISTS idx_id_batch_%s 
 			      ON sch_chameleon.%s (i_id_batch)
 			     ;
 				"""
-				self.pg_conn.pgsql_cur.execute(sql_create_index, (j, j))
+				self.pg_conn.pgsql_cur.execute(sql_create_index % (j, j))
 
 
 	
