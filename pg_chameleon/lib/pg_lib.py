@@ -1,6 +1,7 @@
 import psycopg2
 import os
 import pdb
+import json
 import io
 import sys
 import json
@@ -252,23 +253,24 @@ class pg_engine(object):
 		self.pg_conn.pgsql_cur.execute(sql_vlog_table)
 		vlog_table = self.pg_conn.pgsql_cur.fetchone()
 		for i in vlog_table:
-			sql_vlog_create = """
-				CREATE TABLE IF NOT EXISTS sch_chameleon.%I
-		      (
-		      CONSTRAINT pk_%s PRIMARY KEY (i_id_event),
-		        CONSTRAINT fk_%s FOREIGN KEY (i_id_batch) 
-		        REFERENCES  sch_chameleon.t_replica_batch (i_id_batch)
-		      )
-		    INHERITS (sch_chameleon.t_log_replica)
-		      ;
-			"""
-			self.pg_conn.pgsql_cur.execute(sql_vlog_create, (i, i, i))
-			sql_create_index = """
-				CREATE INDEX IF NOT EXISTS idx_id_batch_%s 
-		      ON sch_chameleon.%I (i_id_batch)
-		     ;
-			"""
-			self.pg_conn.pgsql_cur.execute(sql_create_index, (i, i))
+			for j in json.loads(i):
+				sql_vlog_create = """
+					CREATE TABLE IF NOT EXISTS sch_chameleon.%s
+			      (
+			      CONSTRAINT pk_%s PRIMARY KEY (i_id_event),
+			        CONSTRAINT fk_%s FOREIGN KEY (i_id_batch) 
+			        REFERENCES  sch_chameleon.t_replica_batch (i_id_batch)
+			      )
+			    INHERITS (sch_chameleon.t_log_replica)
+			      ;
+				"""
+				self.pg_conn.pgsql_cur.execute(sql_vlog_create, (j, j, j))
+				sql_create_index = """
+					CREATE INDEX IF NOT EXISTS idx_id_batch_%s 
+			      ON sch_chameleon.%s (i_id_batch)
+			     ;
+				"""
+				self.pg_conn.pgsql_cur.execute(sql_create_index, (j, j))
 
 
 	
