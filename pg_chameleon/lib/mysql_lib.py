@@ -640,15 +640,19 @@ class mysql_engine(object):
 			:param pg_engine: the postgresql engine
 			:param ins_arg: the list with the insert arguments (slice_insert, table_name, columns_insert, slice_size)
 		"""
-		slice_insert=ins_arg[0]
-		table_name=ins_arg[1]
-		columns_ins=ins_arg[2]
-		copy_limit=ins_arg[3]
-		for slice in slice_insert:
-			sql_out="SELECT "+columns_ins+"  FROM "+table_name+" LIMIT "+str(slice*copy_limit)+", "+str(copy_limit)+";"
-			self.mysql_con.my_cursor_fallback.execute(sql_out)
-			insert_data =  self.mysql_con.my_cursor_fallback.fetchall()
-			pg_engine.insert_data(table_name, insert_data , self.my_tables)
+		# slice_insert=ins_arg[0]
+		# table_name=ins_arg[1]
+		# columns_ins=ins_arg[2]
+		# copy_limit=ins_arg[3]
+		# for slice in slice_insert:
+		# 	sql_out="SELECT "+columns_ins+"  FROM "+table_name+" LIMIT "+str(slice*copy_limit)+", "+str(copy_limit)+";"
+		# 	self.mysql_con.my_cursor_fallback.execute(sql_out)
+		# 	insert_data =  self.mysql_con.my_cursor_fallback.fetchall()
+		# 	pg_engine.insert_data(table_name, insert_data , self.my_tables)
+		redshift_copy = """
+			COPY %s from 's3://labs-core-dms/%s' credentials 'aws_access_key_id=AKIAJAOSA473DM4GGRHA;aws_secret_access_key=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' REMOVEQUOTES;
+		"""
+		pg_engine.pg_conn.pgsql_cur.execute(redshift_copy % (pg_engine.dest_schema+'.'+ins_arg[1], ins_arg[1]))
 
 	def copy_table_data(self, pg_engine,  copy_max_memory, lock_tables=True):
 		"""
@@ -718,24 +722,25 @@ class mysql_engine(object):
 				copy_limit=int(count_rows["copy_limit"])
 				if copy_limit == 0:
 					copy_limit=1000000
+				primary_key_count = 1
 				num_slices=int(total_rows//copy_limit)
-				range_slices=list(range(num_slices+1))
-				total_slices=len(range_slices)
-				slice=range_slices[0]
-				self.logger.debug("%s will be copied in %s slices of %s rows"  % (table_name, total_slices, copy_limit))
+				# range_slices=list(range(num_slices+1))
+				# total_slices=len(range_slices)
+				# slice=range_slices[0]
 				columns_csv=self.generate_select(table_columns, mode="csv")
 				columns_ins=self.generate_select(table_columns, mode="insert")
-				csv_data=""
-				sql_out="SELECT "+columns_csv+" as data FROM "+table_name+";"
-				self.mysql_con.connect_db_ubf()
-				try:
-					self.logger.debug("Executing query for table %s"  % (table_name, ))
-					self.mysql_con.my_cursor_ubf.execute(sql_out)
-				except:
-					self.logger.error("error when pulling data from %s. sql executed: %s" % (table_name, sql_out))
-				
 				self.logger.debug("Starting extraction loop for table %s"  % (table_name, ))
 				while True:
+					file_part = 1
+					self.logger.debug("%s will be copied from primary key starting from %s slices of %s rows"  % (table_name, primary_key_count, total_rows))
+					csv_data=""
+					sql_out="SELECT "+columns_csv+" as data FROM "+table_name+" WHERE id >= "+primary_key_count+"LIMIT "+copy_limit+";"
+					self.mysql_con.connect_db_ubf()
+					try:
+						self.logger.debug("Executing query for table %s"  % (table_name, ))
+						self.mysql_con.my_cursor_ubf.execute(sql_out)
+					except:
+						self.logger.error("error when pulling data from %s. sql executed: %s" % (table_name, sql_out))
 					csv_results = self.mysql_con.my_cursor_ubf.fetchmany(copy_limit)
 					if len(csv_results) == 0:
 						break
@@ -753,20 +758,21 @@ class mysql_engine(object):
 						csv_file=open(out_file, 'rb')
 						
 					try:
-						pg_engine.copy_data(table_name, csv_file, self.my_tables)
+						pg_engine.copy_data(file_part, table_name, csv_file, self.my_tables)
 					except:
 						self.logger.info("table %s error in PostgreSQL copy, saving slice number for the fallback to insert statements " % (table_name, ))
-						slice_insert.append(slice)
+						# slice_insert.append(slice)
 						
-					self.print_progress(slice+1,total_slices, table_name)
-					slice+=1
+					# self.print_progress(slice+1,total_slices, table_name)
+					primary_key_count+=copy_limit
+					file_part += 1
 					csv_file.close()
 				if lock_tables:
 					self.unlock_table()
 				self.mysql_con.disconnect_db_ubf()
-				if len(slice_insert)>0:
+				if len(total_rows)>0:
 					ins_arg=[]
-					ins_arg.append(slice_insert)
+					ins_arg.append(total_rows)
 					ins_arg.append(table_name)
 					ins_arg.append(columns_ins)
 					ins_arg.append(copy_limit)
@@ -797,7 +803,7 @@ class mysql_engine(object):
 		t_sql_lock="""
 			LOCK TABLES %s READ;
 		"""
-		self.mysql_con.my_cursor.execute(t_sql_lock, (table_name, ))
+		self.mysql_con.my_cursor.execute(t_sql_lock % (table_name, ))
 		self.get_master_status()
 	
 	def unlock_table(self):

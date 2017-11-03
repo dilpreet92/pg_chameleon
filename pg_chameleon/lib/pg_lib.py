@@ -2,6 +2,7 @@ import psycopg2
 import os
 import pdb
 import json
+import boto
 import io
 import sys
 import json
@@ -32,6 +33,11 @@ class pg_connection(object):
 		self.pgsql_cur=None
 		self.pgsql_cur_replay=None
 		self.pg_charset=self.global_conf.pg_charset
+		self.s3_client = boto3.client(
+      's3',
+      aws_access_key_id='AKIAJAOSA473DM4GGRHA',
+      aws_secret_access_key='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'
+    )
 		
 	
 	def connect_db(self):
@@ -525,7 +531,7 @@ class pg_engine(object):
 				self.pg_conn.pgsql_cur.execute(sql_idx)
 				
 	
-	def copy_data(self, table,  csv_file,  my_tables={}):
+	def copy_data(self, file_part, table,  csv_file,  my_tables={}):
 		"""
 			The method copy the data into postgresql using psycopg2's copy_expert.
 			The csv_file is a file like object which can be either a  csv file or a string io object, accordingly with the 
@@ -535,11 +541,16 @@ class pg_engine(object):
 			:param csv_file: file like object with the table's data stored in CSV format
 			:param my_tables: table's metadata dictionary 
 		"""
-		column_copy=[]
-		for column in my_tables[table]["columns"]:
-			column_copy.append('"'+column["column_name"]+'"')
-		sql_copy="COPY "+'"'+self.dest_schema+'"'+"."+'"'+table+'"'+" ("+','.join(column_copy)+") FROM STDIN WITH NULL 'NULL' CSV QUOTE '\"' DELIMITER',' ESCAPE '\"' ; "
-		self.pg_conn.pgsql_cur.copy_expert(sql_copy,csv_file)
+		# column_copy=[]
+		# for column in my_tables[table]["columns"]:
+		# 	column_copy.append('"'+column["column_name"]+'"')
+		# sql_copy="COPY "+'"'+self.dest_schema+'"'+"."+'"'+table+'"'+" ("+','.join(column_copy)+") FROM STDIN WITH NULL 'NULL' CSV QUOTE '\"' DELIMITER',' ESCAPE '\"' ; "
+		# self.pg_conn.pgsql_cur.copy_expert(sql_copy,csv_file)
+		s3_client.put_object(
+      Bucket='labs-core-dms',
+      Key=table['name'] + '/' + 'part_000000000' + file_part + '.csv',
+      Body=csv_file
+    )
 		
 	def insert_data(self, table,  insert_data,  my_tables={}):
 		"""
