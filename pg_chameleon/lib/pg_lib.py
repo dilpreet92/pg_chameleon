@@ -872,16 +872,26 @@ class pg_engine(object):
 					%s,
 					%s
 				)
-			RETURNING i_id_batch
 			;
 		"""
-						
+		sql_id_batch="""
+			SELECT
+				i_id_batch
+			FROM
+				sch_chameleon.t_replica_batch
+			WHERE
+				i_id_source=%s
+			AND
+				t_binlog_name=%s
+			AND
+				i_binlog_position=%s
+			;
+		"""
 		sql_event="""
 			UPDATE sch_chameleon.t_sources 
 			SET 
 				ts_last_received=to_timestamp(%s),
-				v_log_table=ARRAY[v_log_table[2],v_log_table[1]]
-				
+				v_log_table='[v_log_table[2],v_log_table[1]]'
 			WHERE 
 				i_id_source=%s
 			RETURNING 
@@ -890,7 +900,17 @@ class pg_engine(object):
 			; 
 		"""
 		
-		
+		sql_v_log_table="""
+			SELECT
+				sch_chameleon.v_log_table, sch_chameleon.ts_last_received
+			FROM
+				sch_chameleon.t_sources
+			WHERE
+				i_id_source=%s
+			AND
+				ts_last_received=%s
+			;
+		"""
 		
 		
 		try:
@@ -899,6 +919,7 @@ class pg_engine(object):
 				sql_cleanup=""" DELETE FROM sch_chameleon.t_replica_batch WHERE i_id_source=%s AND NOT b_replayed; """
 				self.pg_conn.pgsql_cur.execute(sql_cleanup, (self.i_id_source, ))
 			self.pg_conn.pgsql_cur.execute(sql_master, (self.i_id_source, binlog_name, binlog_position))
+			self.pg_conn.pgsql_cur.execute(sql_id_batch, (self.i_id_source, binlog_name, binlog_position))
 			results=self.pg_conn.pgsql_cur.fetchone()
 			next_batch_id=results[0]
 		except psycopg2.Error as e:
@@ -906,8 +927,9 @@ class pg_engine(object):
 					self.logger.error(self.pg_conn.pgsql_cur.mogrify(sql_master, (self.i_id_source, binlog_name, binlog_position)))
 		try:
 			self.pg_conn.pgsql_cur.execute(sql_event, (event_time, self.i_id_source, ))
+			self.pg_conn.pgsql_cur.execute(sql_v_log_table, (event_time, self.i_id_source, ))
 			results = self.pg_conn.pgsql_cur.fetchone()
-			log_table_name = results[0]
+			log_table_name = results[0][0]
 			db_event_time = results[1]
 			self.logger.info("Saved master data for source: %s" %(self.source_name, ) )
 			self.logger.debug("Binlog file: %s" % (binlog_name, ))

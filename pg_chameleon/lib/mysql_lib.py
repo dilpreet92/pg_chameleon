@@ -723,6 +723,7 @@ class mysql_engine(object):
 				if copy_limit == 0:
 					copy_limit=1000000
 				primary_key_count = 1
+				file_part = 1
 				num_slices=int(total_rows//copy_limit)
 				# range_slices=list(range(num_slices+1))
 				# total_slices=len(range_slices)
@@ -731,10 +732,9 @@ class mysql_engine(object):
 				columns_ins=self.generate_select(table_columns, mode="insert")
 				self.logger.debug("Starting extraction loop for table %s"  % (table_name, ))
 				while True:
-					file_part = 1
 					self.logger.debug("%s will be copied from primary key starting from %s slices of %s rows"  % (table_name, primary_key_count, total_rows))
 					csv_data=""
-					sql_out="SELECT "+columns_csv+" as data FROM "+table_name+" WHERE id >= "+str(primary_key_count)+"LIMIT "+str(copy_limit)+";"
+					sql_out="SELECT "+columns_csv+" as data FROM "+table_name+" WHERE id >= "+str(primary_key_count)+" LIMIT "+str(copy_limit)+";"
 					self.mysql_con.connect_db_ubf()
 					try:
 						self.logger.debug("Executing query for table %s"  % (table_name, ))
@@ -770,7 +770,7 @@ class mysql_engine(object):
 				if lock_tables:
 					self.unlock_table()
 				self.mysql_con.disconnect_db_ubf()
-				if len(total_rows)>0:
+				if total_rows > 0:
 					ins_arg=[]
 					ins_arg.append(total_rows)
 					ins_arg.append(table_name)
