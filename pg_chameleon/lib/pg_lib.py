@@ -2,7 +2,7 @@ import psycopg2
 import os
 import pdb
 import json
-import boto
+import boto3
 import io
 import sys
 import json
@@ -33,11 +33,6 @@ class pg_connection(object):
 		self.pgsql_cur=None
 		self.pgsql_cur_replay=None
 		self.pg_charset=self.global_conf.pg_charset
-		self.s3_client = boto3.client(
-      's3',
-      aws_access_key_id='AKIAJAOSA473DM4GGRHA',
-      aws_secret_access_key='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'
-    )
 		
 	
 	def connect_db(self):
@@ -99,6 +94,8 @@ class pg_engine(object):
 	def __init__(self, global_config, table_metadata, table_file, logger, sql_dir='sql/'):
 		self.sleep_on_reindex = global_config.sleep_on_reindex
 		self.reindex_app_names = global_config.reindex_app_names
+		self.aws_key = global_config.aws_key
+		self.aws_secret = global_config.aws_secret
 		self.batch_retention = global_config.batch_retention
 		self.type_override = global_config.type_override
 		self.logger = logger
@@ -108,6 +105,7 @@ class pg_engine(object):
 		self.pg_conn.connect_db()
 		self.table_metadata = table_metadata
 		self.table_file = table_file
+		self.s3_client = boto3.client('s3', aws_access_key_id=self.aws_key, aws_secret_access_key=self.aws_secret)
 		self.type_dictionary = {
 			'integer':'integer',
 			'mediumint':'bigint',
@@ -546,11 +544,8 @@ class pg_engine(object):
 		# 	column_copy.append('"'+column["column_name"]+'"')
 		# sql_copy="COPY "+'"'+self.dest_schema+'"'+"."+'"'+table+'"'+" ("+','.join(column_copy)+") FROM STDIN WITH NULL 'NULL' CSV QUOTE '\"' DELIMITER',' ESCAPE '\"' ; "
 		# self.pg_conn.pgsql_cur.copy_expert(sql_copy,csv_file)
-		s3_client.put_object(
-      Bucket='labs-core-dms',
-      Key=table['name'] + '/' + 'part_000000000' + file_part + '.csv',
-      Body=csv_file
-    )
+		csv_file.seek(0)
+		self.s3_client.put_object( Bucket='labs-core-dms', Key=table + '/' + 'part_000000000' + str(file_part) + '.csv', Body=csv_file.read())
 		
 	def insert_data(self, table,  insert_data,  my_tables={}):
 		"""

@@ -123,7 +123,8 @@ class global_config(object):
 			self.log_days_keep = confdic["log_days_keep"]
 			self.out_dir = confdic["out_dir"]
 			self.type_override = confdic["type_override"]
-			
+			self.aws_key = confdic["aws_key"]
+			self.aws_secret = confdic["aws_secret"]
 			self.sleep_loop = confdic["sleep_loop"]
 			self.pause_on_reindex = confdic["pause_on_reindex"]
 			self.sleep_on_reindex = confdic["sleep_on_reindex"]
@@ -317,8 +318,8 @@ class replica_engine(object):
 			Creates the indices on the PostgreSQL schema using the metadata extracted from MySQL.
 			
 		"""
-		self.pg_eng.build_idx_ddl()
-		self.pg_eng.create_indices()
+		# self.pg_eng.build_idx_ddl()
+		# self.pg_eng.create_indices()
 	
 	def create_service_schema(self):
 		"""

@@ -650,9 +650,9 @@ class mysql_engine(object):
 		# 	insert_data =  self.mysql_con.my_cursor_fallback.fetchall()
 		# 	pg_engine.insert_data(table_name, insert_data , self.my_tables)
 		redshift_copy = """
-			COPY %s from 's3://labs-core-dms/%s' credentials 'aws_access_key_id=AKIAJAOSA473DM4GGRHA;aws_secret_access_key=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' REMOVEQUOTES;
+			COPY %s from 's3://labs-core-dms/%s' credentials 'aws_access_key_id=%s;aws_secret_access_key=%s' REMOVEQUOTES;
 		"""
-		pg_engine.pg_conn.pgsql_cur.execute(redshift_copy % (pg_engine.dest_schema+'.'+ins_arg[1], ins_arg[1]))
+		pg_engine.pg_conn.pgsql_cur.execute(redshift_copy % (pg_engine.dest_schema+'.'+ins_arg[1], ins_arg[1], pg_engine.aws_key, pg_engine.aws_secret))
 
 	def copy_table_data(self, pg_engine,  copy_max_memory, lock_tables=True):
 		"""
@@ -734,7 +734,7 @@ class mysql_engine(object):
 					file_part = 1
 					self.logger.debug("%s will be copied from primary key starting from %s slices of %s rows"  % (table_name, primary_key_count, total_rows))
 					csv_data=""
-					sql_out="SELECT "+columns_csv+" as data FROM "+table_name+" WHERE id >= "+primary_key_count+"LIMIT "+copy_limit+";"
+					sql_out="SELECT "+columns_csv+" as data FROM "+table_name+" WHERE id >= "+str(primary_key_count)+"LIMIT "+str(copy_limit)+";"
 					self.mysql_con.connect_db_ubf()
 					try:
 						self.logger.debug("Executing query for table %s"  % (table_name, ))
