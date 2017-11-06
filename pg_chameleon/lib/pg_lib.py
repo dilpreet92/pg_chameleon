@@ -1184,6 +1184,45 @@ class pg_engine(object):
 			;
 		"""
 		self.pg_conn.pgsql_cur.execute(sql_collect_events, (id_batch, ))
+
+	def fn_process_batch(self, replica_batch_size, i_id_source):
+		sql_batch="""
+			SELECT
+				bat.i_id_batch AS v_i_id_batch
+			FROM
+				sch_chameleon.t_replica_batch bat
+				INNER JOIN  sch_chameleon.t_batch_events evt
+				ON
+					evt.i_id_batch=bat.i_id_batch
+			WHERE
+					bat.b_started
+				AND	bat.b_processed
+				AND	NOT bat.b_replayed
+				AND	bat.i_id_source=%s
+			ORDER BY
+				bat.ts_created 
+			LIMIT 1
+		"""
+		self.pg_conn.pgsql_cur.execute(sql_batch, (i_id_source, ))
+		batch_result = self.pg_conn.pgsql_cur.fetchone()
+		v_i_id_batch = batch_result[0]
+		if v_i_id_batch:
+			sql_v_i_evt_replay="""
+				SELECT
+					i_id_event
+				FROM
+					sch_chameleon.t_batch_events
+				WHERE
+					i_id_batch=%s
+			;
+			"""
+			self.pg_conn.pgsql_cur.execute(sql_v_i_evt_replay, (v_i_id_batch, ))
+			batch_result = self.pg_conn.pgsql_cur.fetchone()
+			v_i_evt_replay = eval(batch_result[0])[1:replica_batch_size]
+			v_i_evt_queue = eval(batch_result[0])[replica_batch_size + 1:v_i_evt_replay.length]
+		else
+			return False
+
 		
 	def process_batch(self, replica_batch_size):
 		"""
@@ -1197,7 +1236,7 @@ class pg_engine(object):
 			
 		"""
 		batch_loop=True
-		sql_process="""SELECT sch_chameleon.fn_process_batch(%s,%s);"""
+		# sql_process="""SELECT sch_chameleon.fn_process_batch(%s,%s);"""
 		self.logger.info("Replaying batch for source %s replay size %s rows" % ( self.source_name, replica_batch_size))
 		
 		while batch_loop:
@@ -1206,9 +1245,10 @@ class pg_engine(object):
 			except:
 				self.pg_conn.connect_replay_db()
 				
-			self.pg_conn.pgsql_cur_replay.execute(sql_process, (replica_batch_size, self.i_id_source))
-			batch_result=self.pg_conn.pgsql_cur_replay.fetchone()
-			batch_loop=batch_result[0]
+			# self.pg_conn.pgsql_cur_replay.execute(sql_process, (replica_batch_size, self.i_id_source))
+			# batch_result=self.pg_conn.pgsql_cur_replay.fetchone()
+			# batch_loop=batch_result[0]
+			batch_loop = fn_process_batch(replica_batch_size, i_id_source)
 			
 			if batch_loop:
 				self.logger.info("Still working on batch for source  %s replay size %s rows" % (self.source_name, replica_batch_size ))
