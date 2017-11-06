@@ -621,8 +621,8 @@ class mysql_engine(object):
 		columns=""
 		if mode=="csv":
 			for column in table_columns:
-					column_list.append("COALESCE(REPLACE("+column["column_csv"]+", '\"', '\"\"'),'NULL') ")
-			columns="REPLACE(CONCAT('\"',CONCAT_WS('\",\"',"+','.join(column_list)+"),'\"'),'\"NULL\"','NULL')"
+					column_list.append("COALESCE(REPLACE("+column["column_csv"]+", '\"', '\"\"'),'') ")
+			columns="REPLACE(CONCAT('\"',CONCAT_WS('\",\"',"+','.join(column_list)+"),'\"'),'\"\"','')"
 		if mode=="insert":
 			for column in table_columns:
 				column_list.append(column["column_select"])
@@ -650,7 +650,7 @@ class mysql_engine(object):
 		# 	insert_data =  self.mysql_con.my_cursor_fallback.fetchall()
 		# 	pg_engine.insert_data(table_name, insert_data , self.my_tables)
 		redshift_copy = """
-			COPY %s from 's3://labs-core-dms/%s' credentials 'aws_access_key_id=%s;aws_secret_access_key=%s' REMOVEQUOTES;
+			COPY %s from 's3://labs-core-dms/%s' credentials 'aws_access_key_id=%s;aws_secret_access_key=%s' csv TRUNCATECOLUMNS;
 		"""
 		pg_engine.pg_conn.pgsql_cur.execute(redshift_copy % (pg_engine.dest_schema+'.'+ins_arg[1], ins_arg[1], pg_engine.aws_key, pg_engine.aws_secret))
 

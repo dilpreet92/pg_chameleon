@@ -650,6 +650,8 @@ class pg_engine(object):
 					column_type=column_type+"("+str(column["numeric_precision"])+","+str(column["numeric_scale"])+")"
 				if column["extra"]=="auto_increment":
 					column_type="bigint"
+				if column_type=="text":
+					column_type="character varying"+"("+str(column["character_maximum_length"])+")"
 				ddl_columns.append('"'+column["column_name"]+'" '+column_type+" "+col_is_null )
 			def_columns=str(',').join(ddl_columns)
 			self.type_ddl[table["name"]]=ddl_enum
@@ -924,7 +926,7 @@ class pg_engine(object):
 			self.pg_conn.pgsql_cur.execute(sql_event, (event_time, self.i_id_source, ))
 			self.pg_conn.pgsql_cur.execute(sql_v_log_table, (self.i_id_source, ))
 			results = self.pg_conn.pgsql_cur.fetchone()
-			log_table_name = json.load(results[0])[0]
+			log_table_name = eval(results[0])[0]
 			db_event_time = results[1]
 			self.logger.info("Saved master data for source: %s" %(self.source_name, ) )
 			self.logger.debug("Binlog file: %s" % (binlog_name, ))
@@ -950,7 +952,10 @@ class pg_engine(object):
 			
 		"""
 		sql_batch="""
-			WITH t_created AS
+			UPDATE sch_chameleon.t_replica_batch
+			SET
+				b_started=True
+			FROM
 				(
 					SELECT 
 						max(ts_created) AS ts_created
@@ -960,24 +965,25 @@ class pg_engine(object):
 							NOT b_processed
 						AND	NOT b_replayed
 						AND	i_id_source=%s
-				)
-			UPDATE sch_chameleon.t_replica_batch
-			SET 
-				b_started=True
-			FROM 
-				t_created
+				) AS t_created
 			WHERE
 					t_replica_batch.ts_created=t_created.ts_created
 				AND	i_id_source=%s
-			RETURNING
+			;
+		"""
+		sql_select="""SELECT
 				i_id_batch,
 				t_binlog_name,
 				i_binlog_position,
-				(SELECT v_log_table[1] from sch_chameleon.t_sources WHERE i_id_source=%s) as v_log_table
-				
+				(SELECT json_extract_array_element_text(v_log_table, 0) from sch_chameleon.t_sources WHERE i_id_source=%s) as v_log_table
+			FROM
+				sch_chameleon.t_replica_batch
+			WHERE
+				i_id_source=%s
 			;
 		"""
-		self.pg_conn.pgsql_cur.execute(sql_batch, (self.i_id_source, self.i_id_source, self.i_id_source, ))
+		self.pg_conn.pgsql_cur.execute(sql_batch, (self.i_id_source, self.i_id_source, ))
+		self.pg_conn.pgsql_cur.execute(sql_select, (self.i_id_source, self.i_id_source, ))
 		return self.pg_conn.pgsql_cur.fetchall()
 	
 	def insert_batch(self,group_insert):
