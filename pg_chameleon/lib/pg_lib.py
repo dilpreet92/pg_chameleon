@@ -857,7 +857,7 @@ class pg_engine(object):
 		try:
 			event_time = master_data["Time"]
 		except:
-			event_time = None
+			event_time = str(datetime.datetime.utcnow())
 		
 		sql_master="""
 			INSERT INTO sch_chameleon.t_replica_batch
@@ -890,25 +890,20 @@ class pg_engine(object):
 		sql_event="""
 			UPDATE sch_chameleon.t_sources 
 			SET 
-				ts_last_received=to_timestamp(%s),
-				v_log_table='[v_log_table[2],v_log_table[1]]'
+				ts_last_received=to_timestamp(%s, 'YYYY-MM-DD HH12:MI:SS'),
+				v_log_table='[' + '"' + json_extract_array_element_text(v_log_table, 1) + '"' + ',' + '"' + json_extract_array_element_text(v_log_table, 0) + '"' + ']'
 			WHERE 
 				i_id_source=%s
-			RETURNING 
-				v_log_table[1],
-				ts_last_received
 			; 
 		"""
 		
 		sql_v_log_table="""
 			SELECT
-				sch_chameleon.v_log_table, sch_chameleon.ts_last_received
+				v_log_table, ts_last_received
 			FROM
 				sch_chameleon.t_sources
 			WHERE
 				i_id_source=%s
-			AND
-				ts_last_received=%s
 			;
 		"""
 		
@@ -927,9 +922,9 @@ class pg_engine(object):
 					self.logger.error(self.pg_conn.pgsql_cur.mogrify(sql_master, (self.i_id_source, binlog_name, binlog_position)))
 		try:
 			self.pg_conn.pgsql_cur.execute(sql_event, (event_time, self.i_id_source, ))
-			self.pg_conn.pgsql_cur.execute(sql_v_log_table, (event_time, self.i_id_source, ))
+			self.pg_conn.pgsql_cur.execute(sql_v_log_table, (self.i_id_source, ))
 			results = self.pg_conn.pgsql_cur.fetchone()
-			log_table_name = results[0][0]
+			log_table_name = json.load(results[0])[0]
 			db_event_time = results[1]
 			self.logger.info("Saved master data for source: %s" %(self.source_name, ) )
 			self.logger.debug("Binlog file: %s" % (binlog_name, ))
