@@ -10,6 +10,7 @@ import datetime
 import decimal
 import time
 import base64
+import csv
 class pg_encoder(json.JSONEncoder):
 	def default(self, obj):
 		if 	isinstance(obj, datetime.time) or \
@@ -1083,29 +1084,14 @@ class pg_engine(object):
 		"""
 		csv_file=io.StringIO()
 		self.set_application_name("writing batch")
-		insert_list=[]
+		spamwriter = csv.writer(csv_file)
 		for row_data in group_insert:
 			global_data=row_data["global_data"]
 			event_data=row_data["event_data"]
 			event_update=row_data["event_update"]
 			log_table=global_data["log_table"]
-			insert_list.append(self.pg_conn.pgsql_cur.mogrify("%s,%s,%s,%s,%s,%s,%s,%s,%s" ,  (
-						global_data["batch_id"] + ';', 
-						global_data["table"] + ';',  
-						self.dest_schema + ';', 
-						global_data["action"] + ';', 
-						global_data["binlog"] + ';', 
-						global_data["logpos"] + ';', 
-						json.dumps(event_data, cls=pg_encoder) + ';', 
-						json.dumps(event_update, cls=pg_encoder) + ';', 
-						str(global_data["event_time"]) + ';', 
-						
-					)
-				)
-			)
-											
-		csv_data=b"\n".join(insert_list ).decode()
-		csv_file.write(csv_data)
+			event_time = time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(global_data["event_time"]))
+			spamwriter.writerow([global_data["batch_id"], global_data["table"], self.dest_schema, global_data["action"], global_data["binlog"], global_data["logpos"], json.dumps(event_data, cls=pg_encoder), json.dumps(event_update, cls=pg_encoder), event_time])
 		csv_file.seek(0)
 		self.s3_client.put_object( Bucket='labs-core-dms', Key=log_table + '/' + 'part_0000000001.csv', Body=csv_file.read())
 		try:
@@ -1121,11 +1107,11 @@ class pg_engine(object):
 						i_binlog_position, 
 						jsb_event_data,
 						jsb_event_update,
-						i_my_event_time
+						ts_event_datetime
 					)
-				from 's3://labs-core-dms/%s' credentials 'aws_access_key_id=%s;aws_secret_access_key=%s' csv TRUNCATECOLUMNS delimiter ';,';
+				from 's3://labs-core-dms/%s' credentials 'aws_access_key_id=%s;aws_secret_access_key=%s' csv TRUNCATECOLUMNS;
 			"""
-			self.pg_conn.pgsql_cur.execute(redshift_copy % (self.dest_schema+'.'+log_table, log_table, self.aws_key, self.aws_secret))
+			self.pg_conn.pgsql_cur.execute(redshift_copy % ("sch_chameleon"+'.'+log_table, log_table, self.aws_key, self.aws_secret))
 			
 			# sql_copy="""
 			# 	COPY "sch_chameleon"."""+log_table+""" 
@@ -1151,7 +1137,7 @@ class pg_engine(object):
 			# self.pg_conn.pgsql_cur.copy_expert(sql_copy,csv_file)
 		except psycopg2.Error as e:
 			self.logger.error("SQLCODE: %s SQLERROR: %s" % (e.pgcode, e.pgerror))
-			self.logger.error(csv_data)
+			# self.logger.error(csv_file.read())
 			self.logger.error("fallback to inserts")
 			self.insert_batch(group_insert)
 		self.set_application_name("idle")
