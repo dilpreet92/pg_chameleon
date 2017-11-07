@@ -981,7 +981,7 @@ class pg_engine(object):
 				sch_chameleon.t_replica_batch
 			WHERE
 				i_id_source=%s
-			ORDER 
+			ORDER BY
 				ts_created DESC
 			LIMIT
 				1
@@ -1094,10 +1094,10 @@ class pg_engine(object):
 			event_data=row_data["event_data"]
 			event_update=row_data["event_update"]
 			log_table=global_data["log_table"]
-			event_time = time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(global_data["event_time"]))
+			event_time = global_data["event_time"]
 			spamwriter.writerow([global_data["batch_id"], global_data["table"], self.dest_schema, global_data["action"], global_data["binlog"], global_data["logpos"], json.dumps(event_data, cls=pg_encoder), json.dumps(event_update, cls=pg_encoder), event_time])
 		csv_file.seek(0)
-		self.s3_client.put_object( Bucket='labs-core-dms', Key=log_table + '/' + 'part_0000000001.csv', Body=csv_file.read())
+		self.s3_client.put_object( Bucket='labs-core-dms', Key='t_log_replica' + '/' + 'part_0000000001.csv', Body=csv_file.read())
 		try:
 
 			redshift_copy = """
@@ -1111,11 +1111,11 @@ class pg_engine(object):
 						i_binlog_position, 
 						jsb_event_data,
 						jsb_event_update,
-						ts_event_datetime
+						i_my_event_time
 					)
 				from 's3://labs-core-dms/%s' credentials 'aws_access_key_id=%s;aws_secret_access_key=%s' csv TRUNCATECOLUMNS;
 			"""
-			self.pg_conn.pgsql_cur.execute(redshift_copy % ("sch_chameleon"+'.'+log_table, log_table, self.aws_key, self.aws_secret))
+			self.pg_conn.pgsql_cur.execute(redshift_copy % ("sch_chameleon"+'.'+'t_log_replica', 't_log_replica', self.aws_key, self.aws_secret))
 			
 			# sql_copy="""
 			# 	COPY "sch_chameleon"."""+log_table+""" 
