@@ -48,8 +48,8 @@ CREATE TABLE IF NOT EXISTS sch_chameleon.t_log_replica
   t_binlog_name text,
   i_binlog_position integer,
   ts_event_datetime timestamp without time zone NOT NULL DEFAULT GETDATE(),
-  jsb_event_data text,
-  jsb_event_update text,
+  jsb_event_data character varying(65535),
+  jsb_event_update character varying(65535),
   t_query text,
   i_my_event_time bigint,
   CONSTRAINT pk_log_replica PRIMARY KEY (i_id_event),
@@ -74,7 +74,7 @@ CREATE TABLE sch_chameleon.t_discarded_rows
 	i_id_row		INT8 NOT NULL IDENTITY(1,1),
 	i_id_batch	bigint NOT NULL,
 	ts_discard	timestamp with time zone NOT NULL DEFAULT GETDATE(),
-	t_row_data	text,
+	t_row_data	character varying(65535),
 	CONSTRAINT pk_t_discarded_rows PRIMARY KEY (i_id_row)
 );
 	
@@ -101,7 +101,7 @@ CREATE TABLE sch_chameleon.t_index_def
 
 CREATE TABLE sch_chameleon.t_batch_events
 (
-	i_id_batch	bigint NOT NULL IDENTITY(1,1),
+	i_id_batch	bigint NOT NULL,
 	I_id_event	character varying(65336) NOT NULL,
 	CONSTRAINT pk_t_batch_id_events PRIMARY KEY (i_id_batch)
 );

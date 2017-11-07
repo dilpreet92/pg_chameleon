@@ -857,7 +857,7 @@ class pg_engine(object):
 		binlog_name = master_data["File"]
 		binlog_position = master_data["Position"]
 		try:
-			event_time = master_data["Time"]
+			event_time = time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(master_data["Time"]))
 		except:
 			event_time = str(datetime.datetime.utcnow())
 		
@@ -1054,7 +1054,7 @@ class pg_engine(object):
 			:param row_data: the row data dictionary
 			:param batch_id: the id batch where the row belongs
 		"""
-		b64_row=base64.b64encode(str(row_data))
+		b64_row=str(row_data)
 		sql_save="""
 			INSERT INTO sch_chameleon.t_discarded_rows
 				(
@@ -1151,13 +1151,14 @@ class pg_engine(object):
 			UPDATE sch_chameleon.t_replica_batch
 				SET
 					b_processed=True,
-					ts_processed=now()
+					ts_processed=getdate()
 			WHERE
 				i_id_batch=%s
 			;
 		"""
 		self.pg_conn.pgsql_cur.execute(sql_update, (id_batch, ))
 		self.logger.debug("collecting events id for batch %s " % (id_batch, ))
+		## FLAG
 		sql_collect_events = """
 			INSERT INTO
 				sch_chameleon.t_batch_events
@@ -1167,7 +1168,7 @@ class pg_engine(object):
 				)
 			SELECT
 				i_id_batch,
-				array_agg(i_id_event)
+				'[' + listagg(i_id_event, ', ') + ']'
 			FROM
 			(
 				SELECT 
@@ -1205,8 +1206,8 @@ class pg_engine(object):
 		"""
 		self.pg_conn.pgsql_cur.execute(sql_batch, (i_id_source, ))
 		batch_result = self.pg_conn.pgsql_cur.fetchone()
-		v_i_id_batch = batch_result[0]
-		if v_i_id_batch:
+		if batch_result:
+			v_i_id_batch = batch_result[0]
 			sql_v_i_evt_replay="""
 				SELECT
 					i_id_event
@@ -1220,7 +1221,7 @@ class pg_engine(object):
 			batch_result = self.pg_conn.pgsql_cur.fetchone()
 			v_i_evt_replay = eval(batch_result[0])[1:replica_batch_size]
 			v_i_evt_queue = eval(batch_result[0])[replica_batch_size + 1:v_i_evt_replay.length]
-		else
+		else:
 			return False
 
 		
@@ -1248,7 +1249,7 @@ class pg_engine(object):
 			# self.pg_conn.pgsql_cur_replay.execute(sql_process, (replica_batch_size, self.i_id_source))
 			# batch_result=self.pg_conn.pgsql_cur_replay.fetchone()
 			# batch_loop=batch_result[0]
-			batch_loop = fn_process_batch(replica_batch_size, i_id_source)
+			batch_loop = self.fn_process_batch(replica_batch_size, self.i_id_source)
 			
 			if batch_loop:
 				self.logger.info("Still working on batch for source  %s replay size %s rows" % (self.source_name, replica_batch_size ))
@@ -1264,7 +1265,7 @@ class pg_engine(object):
 					b_started
 				AND b_processed
 				AND b_replayed
-				AND now()-ts_replayed>%s::interval
+				AND getdate()-ts_replayed>%s::interval
 				AND i_id_source=%s
 			;
 		"""
