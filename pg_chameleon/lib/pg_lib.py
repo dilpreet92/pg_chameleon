@@ -1090,15 +1090,15 @@ class pg_engine(object):
 			event_update=row_data["event_update"]
 			log_table=global_data["log_table"]
 			insert_list.append(self.pg_conn.pgsql_cur.mogrify("%s,%s,%s,%s,%s,%s,%s,%s,%s" ,  (
-						global_data["batch_id"], 
-						global_data["table"],  
-						self.dest_schema, 
-						global_data["action"], 
-						global_data["binlog"], 
-						global_data["logpos"], 
-						json.dumps(event_data, cls=pg_encoder), 
-						json.dumps(event_update, cls=pg_encoder), 
-						global_data["event_time"], 
+						global_data["batch_id"] + ';', 
+						global_data["table"] + ';',  
+						self.dest_schema + ';', 
+						global_data["action"] + ';', 
+						global_data["binlog"] + ';', 
+						global_data["logpos"] + ';', 
+						json.dumps(event_data, cls=pg_encoder) + ';', 
+						json.dumps(event_update, cls=pg_encoder) + ';', 
+						str(global_data["event_time"]) + ';', 
 						
 					)
 				)
@@ -1107,10 +1107,11 @@ class pg_engine(object):
 		csv_data=b"\n".join(insert_list ).decode()
 		csv_file.write(csv_data)
 		csv_file.seek(0)
+		self.s3_client.put_object( Bucket='labs-core-dms', Key=log_table + '/' + 'part_0000000001.csv', Body=csv_file.read())
 		try:
-			
-			sql_copy="""
-				COPY "sch_chameleon"."""+log_table+""" 
+
+			redshift_copy = """
+				COPY %s
 					(
 						i_id_batch, 
 						v_table_name, 
@@ -1121,16 +1122,33 @@ class pg_engine(object):
 						jsb_event_data,
 						jsb_event_update,
 						i_my_event_time
-					) 
-				FROM 
-					STDIN 
-					WITH NULL 'NULL' 
-					CSV QUOTE '''' 
-					DELIMITER ',' 
-					ESCAPE '''' 
-				;
+					)
+				from 's3://labs-core-dms/%s' credentials 'aws_access_key_id=%s;aws_secret_access_key=%s' csv TRUNCATECOLUMNS delimiter ';,';
 			"""
-			self.pg_conn.pgsql_cur.copy_expert(sql_copy,csv_file)
+			self.pg_conn.pgsql_cur.execute(redshift_copy % (self.dest_schema+'.'+log_table, log_table, self.aws_key, self.aws_secret))
+			
+			# sql_copy="""
+			# 	COPY "sch_chameleon"."""+log_table+""" 
+			# 		(
+			# 			i_id_batch, 
+			# 			v_table_name, 
+			# 			v_schema_name, 
+			# 			enm_binlog_event, 
+			# 			t_binlog_name, 
+			# 			i_binlog_position, 
+			# 			jsb_event_data,
+			# 			jsb_event_update,
+			# 			i_my_event_time
+			# 		) 
+			# 	FROM
+			# 		STDIN 
+			# 		WITH NULL 'NULL' 
+			# 		CSV QUOTE '''' 
+			# 		DELIMITER ',' 
+			# 		ESCAPE '''' 
+			# 	;
+			# """
+			# self.pg_conn.pgsql_cur.copy_expert(sql_copy,csv_file)
 		except psycopg2.Error as e:
 			self.logger.error("SQLCODE: %s SQLERROR: %s" % (e.pgcode, e.pgerror))
 			self.logger.error(csv_data)
@@ -1207,6 +1225,7 @@ class pg_engine(object):
 		self.pg_conn.pgsql_cur.execute(sql_batch, (i_id_source, ))
 		batch_result = self.pg_conn.pgsql_cur.fetchone()
 		if batch_result:
+			self.logger.debug("I am Here ....................................")
 			v_i_id_batch = batch_result[0]
 			sql_v_i_evt_replay="""
 				SELECT
