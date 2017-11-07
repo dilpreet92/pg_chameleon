@@ -40,14 +40,14 @@ CREATE TABLE sch_chameleon.t_replica_batch
 
 CREATE TABLE IF NOT EXISTS sch_chameleon.t_log_replica
 (
-  i_id_event INT8 NOT NULL IDENTITY(1,1),
-  i_id_batch INT8 NOT NULL,
-  v_table_name character varying(100) NOT NULL,
-  v_schema_name character varying(100) NOT NULL,
-  enm_binlog_event character varying(255) NOT NULL,
+  i_id_event INT8 IDENTITY(1,1),
+  i_id_batch INT8,
+  v_table_name character varying(100),
+  v_schema_name character varying(100),
+  enm_binlog_event character varying(255),
   t_binlog_name text,
   i_binlog_position integer,
-  ts_event_datetime timestamp without time zone NOT NULL DEFAULT GETDATE(),
+  ts_event_datetime timestamp without time zone DEFAULT GETDATE(),
   jsb_event_data character varying(65535),
   jsb_event_update character varying(65535),
   t_query text,

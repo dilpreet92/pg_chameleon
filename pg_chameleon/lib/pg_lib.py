@@ -981,6 +981,10 @@ class pg_engine(object):
 				sch_chameleon.t_replica_batch
 			WHERE
 				i_id_source=%s
+			ORDER 
+				ts_created DESC
+			LIMIT
+				1
 			;
 		"""
 		self.pg_conn.pgsql_cur.execute(sql_batch, (self.i_id_source, self.i_id_source, ))
