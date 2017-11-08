@@ -1332,12 +1332,12 @@ class pg_engine(object):
 					sql_update_source = """
 						UPDATE sch_chameleon.t_sources 
 						SET
-							ts_last_replay=%s
+							ts_last_replay=to_timestamp('%s', 'YYYY-MM-DD HH12:MI:SS')
 						WHERE 	
 							i_id_source=%s
 					"""
-					self.pg_conn.pgsql_cur.execute(sql_update_source % (v_ts_evt_source, i_id_source, ))
-				if v_i_replayed == 0 AND v_i_ddl == 0
+					self.pg_conn.pgsql_cur.execute(sql_update_source % (str(v_ts_evt_source), i_id_source, ))
+				if v_i_replayed == 0 and v_i_ddl == 0:
 					sql_delete_replica = """
 						DELETE 
 						FROM sch_chameleon.t_log_replica
@@ -1360,7 +1360,7 @@ class pg_engine(object):
 					v_b_loop = False;
 				else:
 					sql_update_replica = """
-						UPDATE ONLY sch_chameleon.t_replica_batch  
+						UPDATE sch_chameleon.t_replica_batch  
 						SET 
 							i_ddl=coalesce(i_ddl,0)+%s,
 							i_replayed=coalesce(i_replayed,0)+%s,
@@ -1371,7 +1371,7 @@ class pg_engine(object):
 
 						UPDATE sch_chameleon.t_batch_events
 							SET
-								i_id_event = %s
+								i_id_event = '%s'
 						WHERE
 							i_id_batch=%s
 						;
@@ -1387,7 +1387,15 @@ class pg_engine(object):
 						v_i_evt_replay_string += "i_id_event={}".format(data)
 						if i != len(v_i_evt_replay) - 1:
 							v_i_evt_replay_string += ' OR '
-					self.pg_conn.pgsql_cur.execute(sql_update_replica % (v_i_ddl, v_i_replayed, v_i_id_batch, str(v_i_evt_queue), v_i_id_batch, v_i_id_batch, v_i_evt_replay_string))
+					self.pg_conn.pgsql_cur.execute(sql_update_replica % (v_i_ddl, v_i_replayed, v_i_id_batch, v_i_id_batch, v_i_evt_replay_string))
+					if not v_i_evt_queue:
+						sql_delete_batch_event = """
+							DELETE FROM sch_chameleon.t_batch_events
+							WHERE
+									i_id_batch=%s
+								AND i_id_event='%s' 
+						"""
+						self.pg_conn.pgsql_cur.execute(sql_delete_batch_event % (v_i_id_batch, v_i_evt_queue))
 					v_b_loop = True;
 				sql_batch="""
 					SELECT
