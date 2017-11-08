@@ -1232,7 +1232,7 @@ class pg_engine(object):
 			v_i_evt_queue = eval(batch_result[0])[replica_batch_size:len(v_i_evt_replay)]
 			sql_v_ts_evt_source="""
 				SELECT
-					to_timestamp(i_my_event_time, 'YYYY-MM-DD HH12:MI:SS')
+					timestamp 'epoch' + i_my_event_time * interval '1 second' AS i_my_event_time
 				FROM	
 					sch_chameleon.t_log_replica
 				WHERE
@@ -1253,7 +1253,7 @@ class pg_engine(object):
 					log.jsb_event_update,
 					log.t_query,
 					ts_event_datetime,
-					v_pkey
+					v_table_pkey as v_pkey
 				FROM 
 					sch_chameleon.t_log_replica  log
 					INNER JOIN sch_chameleon.t_replica_tables tab
@@ -1269,10 +1269,27 @@ class pg_engine(object):
 				v_i_evt_replay_string += "log.i_id_event={}".format(data)
 				if i != len(v_i_evt_replay) - 1:
 					v_i_evt_replay_string += ' OR '
-			self.pg_conn.pgsql_cur.execute(sql_vr_rows % ( v_i_id_batch, v_i_evt_replay_string, ))
+			self.pg_conn.pgsql_cur.execute(sql_replica_table % ( v_i_id_batch, v_i_evt_replay_string, ))
 			evt_source_result = self.pg_conn.pgsql_cur.fetchall()
 			result = []
 			for i in evt_source_result:
+				event_data = json.loads(i[5])
+				update_data = json.loads(i[6])
+				if event_data:
+					t_pk_data = "id=" + str(event_data["id"])
+					t_column = event_data.keys()
+					t_event_data = event_data.values()
+				else:
+					t_pk_data = 'id=NULL'
+					t_column = None
+					t_event_data = None
+				if update_data:
+					t_update = ", ".join(["=".join([key, 'NULL' if str(val) == None else str(val)]) for key, val in update_data.items()])
+					t_pk_update = "id=" + str(update_data["id"])
+					t_event_data = update_data.values()
+				else:
+					t_update = None
+					t_pk_update = 'id=NULL'
 				result.append({
 					'i_id_event': i[0],
 					'i_id_batch': i[1],
@@ -1281,12 +1298,30 @@ class pg_engine(object):
 					'enm_binlog_event': i[4],
 					't_query': i[7],
 					'ts_event_datetime': i[8],
-					't_pk_data': i[8],
-					't_pk_update': i[8],
-					't_column': i[8],
-					't_update': i[8],
-					't_event_data': i[8]
+					't_pk_data': t_pk_data,
+					't_pk_update': t_pk_update,
+					't_column': t_column,
+					't_update': update_data,
+					't_event_data': t_event_data
 				})
+			for i in result:
+				if i['enm_binlog_event'] == 'ddl':
+					self.pg_conn.pgsql_cur.execute(i['t_query'])
+				elif result['enm_binlog_event'] == 'insert':
+					sql_insert="""
+						INSERT INTO %s (%s) VALUES (%s);
+					"""
+					self.pg_conn.pgsql_cur.execute(sql_insert, (i['v_schema_name'] + '.' + i['v_table_name'], ','.join(i['t_column']), ','.join(i['t_event_data'])))
+				elif result['enm_binlog_event'] == 'update':
+					sql_update="""
+						UPDATE %s SET %s WHERE %s;
+					"""
+					self.pg_conn.pgsql_cur.execute(sql_update, (i['v_schema_name'] + '.' + i['v_table_name'], i['t_update'], i['t_pk_update']))
+				elif result['enm_binlog_event'] == 'delete':
+					sql_delete="""
+						DELETE FROM %s WHERE %s;
+					"""
+					self.pg_conn.pgsql_cur.execute(sql_delete, (i['v_schema_name'] + '.' + i['v_table_name'], i['t_pk_data']))
 			# sql_vr_rows="""
 			# 	SELECT 
 			# 		CASE
