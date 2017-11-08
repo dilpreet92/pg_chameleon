@@ -1097,7 +1097,7 @@ class pg_engine(object):
 			event_time = global_data["event_time"]
 			spamwriter.writerow([global_data["batch_id"], global_data["table"], self.dest_schema, global_data["action"], global_data["binlog"], global_data["logpos"], json.dumps(event_data, cls=pg_encoder), json.dumps(event_update, cls=pg_encoder), event_time])
 		csv_file.seek(0)
-		self.s3_client.put_object( Bucket='labs-core-dms', Key='t_log_replica' + '/' + 'part_0000000001.csv', Body=csv_file.read())
+		self.s3_client.put_object( Bucket='labs-core-dms', Key='replica_log' + '/' + 'part_0000000001.csv', Body=csv_file.read())
 		try:
 
 			redshift_copy = """
@@ -1115,7 +1115,7 @@ class pg_engine(object):
 					)
 				from 's3://labs-core-dms/%s' credentials 'aws_access_key_id=%s;aws_secret_access_key=%s' csv TRUNCATECOLUMNS;
 			"""
-			self.pg_conn.pgsql_cur.execute(redshift_copy % ("sch_chameleon"+'.'+'t_log_replica', 't_log_replica', self.aws_key, self.aws_secret))
+			self.pg_conn.pgsql_cur.execute(redshift_copy % ("sch_chameleon"+'.'+'t_log_replica', 'replica_log', self.aws_key, self.aws_secret))
 			
 			# sql_copy="""
 			# 	COPY "sch_chameleon"."""+log_table+""" 
@@ -1228,8 +1228,198 @@ class pg_engine(object):
 			"""
 			self.pg_conn.pgsql_cur.execute(sql_v_i_evt_replay, (v_i_id_batch, ))
 			batch_result = self.pg_conn.pgsql_cur.fetchone()
-			v_i_evt_replay = eval(batch_result[0])[1:replica_batch_size]
-			v_i_evt_queue = eval(batch_result[0])[replica_batch_size + 1:v_i_evt_replay.length]
+			v_i_evt_replay = eval(batch_result[0])[0:(replica_batch_size-1)]
+			v_i_evt_queue = eval(batch_result[0])[replica_batch_size:len(v_i_evt_replay)]
+			sql_v_ts_evt_source="""
+				SELECT
+					to_timestamp(i_my_event_time, 'YYYY-MM-DD HH12:MI:SS')
+				FROM	
+					sch_chameleon.t_log_replica
+				WHERE
+						i_id_event=%s
+					AND	i_id_batch=%s
+			"""
+			self.pg_conn.pgsql_cur.execute(sql_v_ts_evt_source % ( v_i_evt_replay[len(v_i_evt_replay) - 1], v_i_id_batch, ))
+			evt_source_result = self.pg_conn.pgsql_cur.fetchone()
+			v_ts_evt_source = evt_source_result[0]
+			sql_replica_table = """
+				SELECT 
+					log.i_id_event,
+					log.i_id_batch,
+					log.v_table_name,
+					log.v_schema_name,
+					log.enm_binlog_event,
+					log.jsb_event_data,
+					log.jsb_event_update,
+					log.t_query,
+					ts_event_datetime,
+					v_pkey
+				FROM 
+					sch_chameleon.t_log_replica  log
+					INNER JOIN sch_chameleon.t_replica_tables tab
+						ON
+								tab.v_table_name=log.v_table_name
+							AND	tab.v_schema_name=log.v_schema_name
+				WHERE
+						log.i_id_batch=%s
+					AND %s
+			"""
+			v_i_evt_replay_string=""
+			for i, data in enumerate(v_i_evt_replay):
+				v_i_evt_replay_string += "log.i_id_event={}".format(data)
+				if i != len(v_i_evt_replay) - 1:
+					v_i_evt_replay_string += ' OR '
+			self.pg_conn.pgsql_cur.execute(sql_vr_rows % ( v_i_id_batch, v_i_evt_replay_string, ))
+			evt_source_result = self.pg_conn.pgsql_cur.fetchall()
+			result = []
+			for i in evt_source_result:
+				result.append({
+					'i_id_event': i[0],
+					'i_id_batch': i[1],
+					'v_table_name': i[2],
+					'v_schema_name': i[3],
+					'enm_binlog_event': i[4],
+					't_query': i[7],
+					'ts_event_datetime': i[8],
+					't_pk_data': i[8],
+					't_pk_update': i[8],
+					't_column': i[8],
+					't_update': i[8],
+					't_event_data': i[8]
+				})
+			# sql_vr_rows="""
+			# 	SELECT 
+			# 		CASE
+			# 			WHEN enm_binlog_event = 'ddl'
+			# 			THEN 
+			# 				t_query
+			# 			WHEN enm_binlog_event = 'insert'
+			# 			THEN
+			# 				format(
+			# 					'INSERT INTO %I.%I (%s) VALUES (%s);',
+			# 					v_schema_name,
+			# 					v_table_name,
+			# 					array_to_string(t_colunm,','),
+			# 					array_to_string(t_event_data,',')
+								
+			# 				)
+			# 			WHEN enm_binlog_event = 'update'
+			# 			THEN
+			# 				format(
+			# 					'UPDATE %I.%I SET %s WHERE %s;',
+			# 					v_schema_name,
+			# 					v_table_name,
+			# 					t_update,
+			# 					t_pk_update
+			# 				)
+			# 			WHEN enm_binlog_event = 'delete'
+			# 			THEN
+			# 				format(
+			# 					'DELETE FROM %I.%I WHERE %s;',
+			# 					v_schema_name,
+			# 					v_table_name,
+			# 					t_pk_data
+			# 				)
+			# 			,
+			# 		i_id_event,
+			# 		i_id_batch,
+			# 		enm_binlog_event
+			# 	FROM
+			# 	(
+			# 		SELECT
+			# 			i_id_event,
+			# 			i_id_batch,
+			# 			v_table_name,
+			# 			v_schema_name,
+			# 			enm_binlog_event,
+			# 			t_query,
+			# 			ts_event_datetime,
+			# 			t_pk_data,
+			# 			t_pk_update,
+			# 			array_agg(quote_ident(t_column)) AS t_colunm,
+			# 			string_agg(distinct format('%I=%L',t_column,jsb_event_data->>t_column),',') as  t_update,
+			# 			array_agg(quote_nullable(jsb_event_data->>t_column)) as t_event_data
+			# 		FROM
+			# 		(
+			# 			SELECT
+			# 				i_id_event,
+			# 				i_id_batch,
+			# 				v_table_name,
+			# 				v_schema_name,
+			# 				enm_binlog_event,
+			# 				jsb_event_data,
+			# 				jsb_event_update,
+			# 				t_query,
+			# 				ts_event_datetime,
+			# 				string_agg(distinct format('%I=%L',v_pkey,jsb_event_data->>v_pkey),' AND ') as  t_pk_data,
+			# 				string_agg(distinct format('%I=%L',v_pkey,jsb_event_update->>v_pkey),' AND ') as  t_pk_update,
+			# 				(jsonb_each_text(coalesce(jsb_event_data,'{"foo":"bar"}'::jsonb))).key AS t_column
+			# 			FROM
+			# 			(
+			# 				SELECT 
+			# 					i_id_event,
+			# 					i_id_batch,
+			# 					v_table_name,
+			# 					v_schema_name,
+			# 					enm_binlog_event,
+			# 					jsb_event_data,
+			# 					jsb_event_update,
+			# 					t_query,
+			# 					ts_event_datetime,
+			# 					v_pkey
+								
+			# 				FROM 
+			# 					(
+			# 						SELECT 
+			# 							log.i_id_event,
+			# 							log.i_id_batch,
+			# 							log.v_table_name,
+			# 							log.v_schema_name,
+			# 							log.enm_binlog_event,
+			# 							log.jsb_event_data,
+			# 							log.jsb_event_update,
+			# 							log.t_query,
+			# 							ts_event_datetime,
+			# 							v_pkey
+										
+										
+										
+			# 						FROM 
+			# 							sch_chameleon.t_log_replica  log
+			# 							INNER JOIN sch_chameleon.t_replica_tables tab
+			# 								ON
+			# 										tab.v_table_name=log.v_table_name
+			# 									AND	tab.v_schema_name=log.v_schema_name
+			# 						WHERE
+			# 								log.i_id_batch=%s(v_id_batch)
+			# 							AND 	log.i_id_event=%s(ANY(v_i_evt_replay))
+									
+			# 					) t_log
+								
+			# 			) t_pkey
+			# 			GROUP BY
+			# 				i_id_event,
+			# 				i_id_batch,
+			# 				v_table_name,
+			# 				v_schema_name,
+			# 				enm_binlog_event,
+			# 				jsb_event_data,
+			# 				jsb_event_update,
+			# 				t_query,
+			# 				ts_event_datetime
+			# 		) t_columns
+			# 		GROUP BY
+			# 			i_id_event,
+			# 			i_id_batch,
+			# 			v_table_name,
+			# 			v_schema_name,
+			# 			enm_binlog_event,
+			# 			t_query,
+			# 			ts_event_datetime,
+			# 			t_pk_data,
+			# 			t_pk_update
+			# 	)
+			# """
 		else:
 			return False
 
