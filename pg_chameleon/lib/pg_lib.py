@@ -1387,7 +1387,7 @@ class pg_engine(object):
 						v_i_evt_replay_string += "i_id_event={}".format(data)
 						if i != len(v_i_evt_replay) - 1:
 							v_i_evt_replay_string += ' OR '
-					self.pg_conn.pgsql_cur.execute(sql_update_replica % (v_i_ddl, v_i_replayed, v_i_id_batch, v_i_id_batch, v_i_evt_replay_string))
+					self.pg_conn.pgsql_cur.execute(sql_update_replica % (v_i_ddl, v_i_replayed, v_i_id_batch, v_i_id_batch, v_i_evt_queue, v_i_id_batch, v_i_evt_replay_string))
 					if not v_i_evt_queue:
 						sql_delete_batch_event = """
 							DELETE FROM sch_chameleon.t_batch_events
