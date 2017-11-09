@@ -646,13 +646,19 @@ class pg_engine(object):
 					ddl_enum.append(sql_create_enum)
 					column_type=enum_type
 				if column_type=="character varying" or column_type=="character":
-					column_type=column_type+"("+str(column["character_maximum_length"])+")"
+					if column["character_maximum_length"] > 65535:
+						column_type=column_type+"("+str(5)+")"
+					else:
+						column_type=column_type+"("+str(column["character_maximum_length"])+")"
 				if column_type=='numeric':
 					column_type=column_type+"("+str(column["numeric_precision"])+","+str(column["numeric_scale"])+")"
 				if column["extra"]=="auto_increment":
 					column_type="bigint"
 				if column_type=="text":
-					column_type="character varying"+"("+str(column["character_maximum_length"])+")"
+					if column["character_maximum_length"] > 65535:
+						column_type=column_type+"("+str(5)+")"
+					else:
+						column_type=column_type+"("+str(column["character_maximum_length"])+")"
 				ddl_columns.append('"'+column["column_name"]+'" '+column_type+" "+col_is_null )
 			def_columns=str(',').join(ddl_columns)
 			self.type_ddl[table["name"]]=ddl_enum
