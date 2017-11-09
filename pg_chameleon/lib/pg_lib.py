@@ -1894,11 +1894,11 @@ class pg_engine(object):
 				
 				if column_type=="character varying" or column_type=="character" or column_type=='numeric' or column_type=='bit' or column_type=='float':
 					column_type=column_type+"("+str(alter_dic["dimension"])+")"
-				if column_type=="text"
+				if column_type=="text":
 					column_type="character varying(65535)"
 				sql_type = """
 					ALTER TABLE %s ADD COLUMN column_new %s;
-					UPDATE %s SET column_new = %s
+					UPDATE %s SET column_new = %s;
 					ALTER TABLE %s DROP COLUMN %s;
 					ALTER TABLE %s RENAME COLUMN column_new TO %s;
 				""" % (table_name, column_type, table_name, old_column, table_name, old_column, table_name, old_column)
