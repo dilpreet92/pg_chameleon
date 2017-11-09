@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS sch_chameleon.t_log_replica
   ts_event_datetime timestamp without time zone DEFAULT GETDATE(),
   jsb_event_data character varying(65535),
   jsb_event_update character varying(65535),
-  t_query text,
+  t_query character varying(65535),
   i_my_event_time bigint,
   CONSTRAINT pk_log_replica PRIMARY KEY (i_id_event),
   CONSTRAINT fk_replica_batch FOREIGN KEY (i_id_batch) 

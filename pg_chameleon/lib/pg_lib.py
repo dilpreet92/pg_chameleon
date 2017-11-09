@@ -1768,60 +1768,60 @@ class pg_engine(object):
 		#enm_dic = {'table':table_name, 'column':column_name, 'type':column_type, 'enum_list': enum_list}
 		enum_name="enum_%s_%s" % (enm_dic['table'], enm_dic['column'])
 		
-		sql_check_enum = """
-			SELECT 
-				typ.typcategory,
-				typ.typname,
-				sch_typ.nspname as typschema,
-				CASE 
-					WHEN typ.typcategory='E'
-					THEN
-					(
-						SELECT 
-							array_agg(enumlabel) 
-						FROM 
-							pg_enum 
-						WHERE 
-							enumtypid=typ.oid
-					)
-				END enum_list
-			FROM
-				pg_type typ
-				INNER JOIN pg_namespace sch_typ
-					ON  sch_typ.oid = typ.typnamespace
+		# sql_check_enum = """
+		# 	SELECT 
+		# 		typ.typcategory,
+		# 		typ.typname,
+		# 		sch_typ.nspname as typschema,
+		# 		CASE 
+		# 			WHEN typ.typcategory='E'
+		# 			THEN
+		# 			(
+		# 				SELECT 
+		# 					array_agg(enumlabel) 
+		# 				FROM 
+		# 					pg_enum 
+		# 				WHERE 
+		# 					enumtypid=typ.oid
+		# 			)
+		# 		END enum_list
+		# 	FROM
+		# 		pg_type typ
+		# 		INNER JOIN pg_namespace sch_typ
+		# 			ON  sch_typ.oid = typ.typnamespace
 
-			WHERE
-					sch_typ.nspname=%s
-				AND	typ.typname=%s
-			;
-		"""
-		self.pg_conn.pgsql_cur.execute(sql_check_enum, (self.dest_schema,  enum_name))
-		type_data=self.pg_conn.pgsql_cur.fetchone()
+		# 	WHERE
+		# 			sch_typ.nspname=%s
+		# 		AND	typ.typname=%s
+		# 	;
+		# """
+		# self.pg_conn.pgsql_cur.execute(sql_check_enum, (self.dest_schema,  enum_name))
+		# type_data=self.pg_conn.pgsql_cur.fetchone()
 		return_dic = {}
 		pre_alter = ""
 		post_alter = ""
 		column_type = enm_dic["type"]
-		self.logger.debug(enm_dic)
-		if type_data:
-			if type_data[0] == 'E' and enm_dic["type"] == 'enum':
-				self.logger.debug('There is already the enum %s, altering the type')
-				new_enums = [val.strip() for val in enm_dic["enum_list"] if val.strip() not in type_data[3]]
-				sql_add = []
-				for enumeration in  new_enums:
-					sql_add =  """ALTER TYPE "%s"."%s" ADD VALUE '%s';""" % (type_data[2], enum_name, enumeration) 
-					self.pg_conn.pgsql_cur.execute(sql_add)
-				column_type = enum_name
-			elif type_data[0] != 'E' and enm_dic["type"] == 'enum':
-				self.logger.debug('The column will be altered in enum, creating the type')
-				pre_alter = "CREATE TYPE \"%s\" AS ENUM (%s);" % (enum_name, enm_dic["enum_elements"])
-				column_type = enum_name
-			elif type_data[0] == 'E' and enm_dic["type"] != 'enum':
-				self.logger.debug('The column is no longer an enum, dropping the type')
-				post_alter = "DROP TYPE \"%s\" " % (enum_name)
-		elif not type_data and enm_dic["type"] == 'enum':
-				self.logger.debug('Creating a new enumeration type %s' % (enum_name))
-				pre_alter = "CREATE TYPE \"%s\" AS ENUM (%s);" % (enum_name, enm_dic["enum_elements"])
-				column_type = enum_name
+		# self.logger.debug(enm_dic)
+		# if type_data:
+		# 	if type_data[0] == 'E' and enm_dic["type"] == 'enum':
+		# 		self.logger.debug('There is already the enum %s, altering the type')
+		# 		new_enums = [val.strip() for val in enm_dic["enum_list"] if val.strip() not in type_data[3]]
+		# 		sql_add = []
+		# 		for enumeration in  new_enums:
+		# 			sql_add =  """ALTER TYPE "%s"."%s" ADD VALUE '%s';""" % (type_data[2], enum_name, enumeration) 
+		# 			self.pg_conn.pgsql_cur.execute(sql_add)
+		# 		column_type = enum_name
+		# 	elif type_data[0] != 'E' and enm_dic["type"] == 'enum':
+		# 		self.logger.debug('The column will be altered in enum, creating the type')
+		# 		pre_alter = "CREATE TYPE \"%s\" AS ENUM (%s);" % (enum_name, enm_dic["enum_elements"])
+		# 		column_type = enum_name
+		# 	elif type_data[0] == 'E' and enm_dic["type"] != 'enum':
+		# 		self.logger.debug('The column is no longer an enum, dropping the type')
+		# 		post_alter = "DROP TYPE \"%s\" " % (enum_name)
+		# elif not type_data and enm_dic["type"] == 'enum':
+		# 		self.logger.debug('Creating a new enumeration type %s' % (enum_name))
+		# 		pre_alter = "CREATE TYPE \"%s\" AS ENUM (%s);" % (enum_name, enm_dic["enum_elements"])
+		# 		column_type = enum_name
 
 		return_dic["column_type"] = column_type
 		return_dic["pre_alter"] = pre_alter
@@ -1893,8 +1893,15 @@ class pg_engine(object):
 				column_type= enm_alter["column_type"]
 				
 				if column_type=="character varying" or column_type=="character" or column_type=='numeric' or column_type=='bit' or column_type=='float':
-						column_type=column_type+"("+str(alter_dic["dimension"])+")"
-				sql_type = """ALTER TABLE "%s" ALTER COLUMN "%s" SET DATA TYPE %s  USING "%s"::%s ;;""" % (table_name, old_column, column_type, old_column, column_type)
+					column_type=column_type+"("+str(alter_dic["dimension"])+")"
+				if column_type=="text"
+					column_type="character varying(65535)"
+				sql_type = """
+					ALTER TABLE %s ADD COLUMN column_new %s;
+					UPDATE %s SET column_new = %s
+					ALTER TABLE %s DROP COLUMN %s;
+					ALTER TABLE %s RENAME COLUMN column_new TO %s;
+				""" % (table_name, column_type, table_name, old_column, table_name, old_column, table_name, old_column)
 				if old_column != new_column:
 					sql_rename="""ALTER TABLE  "%s" RENAME COLUMN "%s" TO "%s" ;""" % (table_name, old_column, new_column)
 					
