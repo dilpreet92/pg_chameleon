@@ -656,9 +656,9 @@ class pg_engine(object):
 					column_type="bigint"
 				if column_type=="text":
 					if (column["character_maximum_length"] is None) or (column["character_maximum_length"] > 65535):
-						column_type=column_type+"("+str(5)+")"
+						column_type='character varying'+"("+str(5)+")"
 					else:
-						column_type=column_type+"("+str(column["character_maximum_length"])+")"
+						column_type='character varying'+"("+str(column["character_maximum_length"])+")"
 				ddl_columns.append('"'+column["column_name"]+'" '+column_type+" "+col_is_null )
 			def_columns=str(',').join(ddl_columns)
 			self.type_ddl[table["name"]]=ddl_enum
