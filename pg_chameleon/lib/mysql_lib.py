@@ -655,7 +655,7 @@ class mysql_engine(object):
 		pg_engine.pg_conn.pgsql_cur.execute(redshift_copy % (pg_engine.dest_schema+'.'+ins_arg[1], ins_arg[1], pg_engine.aws_key, pg_engine.aws_secret))
 
 	
-	def read_replica_for_table(self, init_table_name, table_binlog_position, last_binlog_position, t_binlog_name):
+	def read_replica_for_table(self, init_table_name, table_binlog_position, last_binlog_position, t_binlog_name, pg_engine, batch_data):
 		table_type_map = self.get_table_type_map()	
 		schema_name = pg_engine.dest_schema
 		inc_tables = pg_engine.get_inconsistent_tables()
@@ -664,6 +664,8 @@ class mysql_engine(object):
 		group_insert = []
 		log_file = t_binlog_name
 		log_position = table_binlog_position
+		log_table = 't_log_replica'
+		id_batch = batch_data[0][0]
 		my_stream = BinLogStreamReader(
 			connection_settings = self.mysql_con.mysql_conn, 
 			server_id = self.mysql_con.my_server_id, 
@@ -675,9 +677,9 @@ class mysql_engine(object):
 			only_tables = self.tables_limit
 		)
 		for binlogevent in my_stream:
-			if binlogevent.position >= last_binlog_position:
-				continue
 			if isinstance(binlogevent, RotateEvent):
+				if binlogevent.position >= last_binlog_position:
+					continue
 				event_time = binlogevent.timestamp
 				binlogfile = binlogevent.next_binlog
 				position = binlogevent.position
@@ -701,6 +703,8 @@ class mysql_engine(object):
 				except:
 					query_schema = binlogevent.schema
 				if binlogevent.query.strip().upper() not in self.stat_skip and query_schema == self.my_schema: 
+					if binlogevent.packet.log_pos >= last_binlog_position:
+						continue
 					log_position = binlogevent.packet.log_pos
 					master_data["File"] = binlogfile
 					master_data["Position"] = log_position
@@ -755,9 +759,11 @@ class mysql_engine(object):
 					add_row = True
 					log_file=binlogfile
 					log_position=binlogevent.packet.log_pos
+					if binlogevent.packet.log_pos >= last_binlog_position:
+						continue 
 					table_name=binlogevent.table
 					event_time=binlogevent.timestamp
-					if init_table_name != table_name
+					if init_table_name != table_name:
 						continue
 					if table_name in inc_tables:
 						table_consistent = False
@@ -837,6 +843,7 @@ class mysql_engine(object):
 
 
 	def save_init_table_data(self, pg_engine):
+		pg_engine.set_source_id('running')
 		batch_data = pg_engine.get_batch_data()
 		last_binlog_position = batch_data[0][2]
 		sql_out = """
@@ -850,31 +857,35 @@ class mysql_engine(object):
 			;
 		"""
 		pg_engine.pg_conn.pgsql_cur.execute(sql_out)
-		init_results = self.pg_conn.pgsql_cur.fetchall()
+		init_results = pg_engine.pg_conn.pgsql_cur.fetchall()
 		for i in init_results:
 			if last_binlog_position > i[3]:
-				read_replica_for_table(i[1], i[3], last_binlog_position, i[2])
+				self.read_replica_for_table(i[1], i[3], last_binlog_position, i[2], pg_engine, batch_data)
 				sql_id_batch = """
 					SELECT
 					  i_id_batch
 					FROM 
-					 	sch_chameleaon.t_log_replica
+					 	sch_chameleon.t_log_replica
 					ORDER BY
 						i_my_event_time
 					LIMIT
 					  1
 				""" 
 				pg_engine.pg_conn.pgsql_cur.execute(sql_id_batch)
-				batch = self.pg_conn.pgsql_cur.fetchone()
+				batch = pg_engine.pg_conn.pgsql_cur.fetchone()
 				id_batch = batch[0]
 				pg_engine.set_batch_processed(id_batch)
 		pg_engine.process_batch(self.replica_batch_size)
+		sql_delete = """
+			DELETE * FROM sch_chameleon.t_init_tables
+		"""
+		pg_engine.pg_conn.pgsql_cur.execute(sql_delete)
 
 
 	def save_master_status_for_table(self, table_name, pg_engine):
-		get_master_status()
-		t_binlog_name = self.master_status['File']
-		i_binlog_position = self.master_status['Position']
+		self.get_master_status()
+		t_binlog_name = self.master_status[0]['File']
+		i_binlog_position = self.master_status[0]['Position']
 		sql_init_table = """
 			INSERT INTO
 				sch_chameleon.t_init_tables
@@ -885,8 +896,8 @@ class mysql_engine(object):
 				)
 			VALUES
 			 	(
-			 		%s,
-			 		%s,
+			 		'%s',
+			 		'%s',
 			 		%s
 			 	)
 		"""
@@ -958,7 +969,7 @@ class mysql_engine(object):
 				total_rows=count_rows["table_rows"]
 				if total_rows == 0:
 				  continue
-				copy_limit=10000
+				copy_limit=100000
 				primary_key_count = 1
 				file_part = 1
 				num_slices=int(total_rows//copy_limit)
@@ -968,11 +979,11 @@ class mysql_engine(object):
 				columns_csv=self.generate_select(table_columns, mode="csv")
 				columns_ins=self.generate_select(table_columns, mode="insert")
 				self.logger.debug("Starting extraction loop for table %s"  % (table_name, ))
+				self.mysql_con.connect_db_ubf()
 				while True:
 					self.logger.debug("%s will be copied from primary key starting from %s slices of %s rows"  % (table_name, primary_key_count, total_rows))
 					csv_data=""
 					sql_out="SELECT "+columns_csv+" as data FROM "+table_name+" WHERE id >= "+str(primary_key_count)+" LIMIT "+str(copy_limit)+";"
-					self.mysql_con.connect_db_ubf()
 					try:
 						self.logger.debug("Executing query for table %s"  % (table_name, ))
 						self.mysql_con.my_cursor_ubf.execute(sql_out)
@@ -1004,10 +1015,10 @@ class mysql_engine(object):
 					primary_key_count+=copy_limit
 					file_part += 1
 					csv_file.close()
-					self.mysql_con.disconnect_db_ubf()
 				if lock_tables:
-					save_master_status_for_table(table_name, pg_engine)
+					self.save_master_status_for_table(table_name, pg_engine)
 					self.unlock_table()
+				self.mysql_con.disconnect_db_ubf()
 				if total_rows > 0:
 					ins_arg=[]
 					ins_arg.append(total_rows)
