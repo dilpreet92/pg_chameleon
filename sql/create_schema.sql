@@ -69,6 +69,17 @@ CREATE TABLE sch_chameleon.t_replica_tables
   CONSTRAINT pk_t_replica_tables PRIMARY KEY (i_id_table)
 );
 
+CREATE TABLE sch_chameleon.t_init_tables
+(
+  i_id_init INT8 NOT NULL IDENTITY(1,1),
+  v_table_name character varying(250) NOT NULL,
+  t_binlog_name text,
+  i_binlog_position integer,
+  b_started boolean NOT NULL DEFAULT False,
+  b_processed boolean NOT NULL DEFAULT False,
+  CONSTRAINT pk_t_init_tables PRIMARY KEY (i_id_init)
+);
+
 CREATE TABLE sch_chameleon.t_discarded_rows
 (
 	i_id_row		INT8 NOT NULL IDENTITY(1,1),

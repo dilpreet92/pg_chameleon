@@ -654,6 +654,245 @@ class mysql_engine(object):
 		"""
 		pg_engine.pg_conn.pgsql_cur.execute(redshift_copy % (pg_engine.dest_schema+'.'+ins_arg[1], ins_arg[1], pg_engine.aws_key, pg_engine.aws_secret))
 
+	
+	def read_replica_for_table(self, init_table_name, table_binlog_position, last_binlog_position, t_binlog_name):
+		table_type_map = self.get_table_type_map()	
+		schema_name = pg_engine.dest_schema
+		inc_tables = pg_engine.get_inconsistent_tables()
+		close_batch = False
+		master_data = {}
+		group_insert = []
+		log_file = t_binlog_name
+		log_position = table_binlog_position
+		my_stream = BinLogStreamReader(
+			connection_settings = self.mysql_con.mysql_conn, 
+			server_id = self.mysql_con.my_server_id, 
+			only_events = [RotateEvent, DeleteRowsEvent, WriteRowsEvent, UpdateRowsEvent, QueryEvent], 
+			log_file = log_file, 
+			log_pos = log_position, 
+			resume_stream = True, 
+			only_schemas = [self.mysql_con.my_database], 
+			only_tables = self.tables_limit
+		)
+		for binlogevent in my_stream:
+			if binlogevent.position >= last_binlog_position:
+				continue
+			if isinstance(binlogevent, RotateEvent):
+				event_time = binlogevent.timestamp
+				binlogfile = binlogevent.next_binlog
+				position = binlogevent.position
+				self.logger.debug("ROTATE EVENT - binlogfile %s, position %s. " % (binlogfile, position))
+				if log_file != binlogfile:
+					close_batch = True
+				if close_batch:
+					if log_file!=binlogfile:
+						master_data["File"]=binlogfile
+						master_data["Position"]=position
+						master_data["Time"]=event_time
+					if len(group_insert)>0:
+						pg_engine.write_batch(group_insert)
+						group_insert=[]
+					my_stream.close()
+					return [master_data, close_batch]
+			elif isinstance(binlogevent, QueryEvent):
+				event_time = binlogevent.timestamp
+				try:
+					query_schema = binlogevent.schema.decode()
+				except:
+					query_schema = binlogevent.schema
+				if binlogevent.query.strip().upper() not in self.stat_skip and query_schema == self.my_schema: 
+					log_position = binlogevent.packet.log_pos
+					master_data["File"] = binlogfile
+					master_data["Position"] = log_position
+					master_data["Time"] = event_time
+					if len(group_insert)>0:
+						pg_engine.write_batch(group_insert)
+						group_insert=[]
+					self.logger.info("QUERY EVENT - binlogfile %s, position %s.\n--------\n%s\n-------- " % (binlogfile, log_position, binlogevent.query))
+					self.sql_token.parse_sql(binlogevent.query)
+					for token in self.sql_token.tokenised:
+						write_ddl = True
+						table_name = token["name"]
+						if table_name != init_table_name:
+							continue
+						if table_name in inc_tables:
+							write_ddl = False
+							log_seq = int(log_file.split('.')[1])
+							log_pos = int(log_position)
+							table_dic = inc_tables[table_name]
+							if log_seq > table_dic["log_seq"]:
+								write_ddl = True
+							elif log_seq == table_dic["log_seq"] and log_pos >= table_dic["log_pos"]:
+								write_ddl = True
+							if write_ddl:
+								self.logger.info("CONSISTENT POINT FOR TABLE %s REACHED  - binlogfile %s, position %s" % (table_name, binlogfile, log_position))
+								pg_engine.set_consistent_table(table_name)
+								inc_tables = pg_engine.get_inconsistent_tables()
+						if write_ddl:
+							self.get_table_metadata()
+							pg_engine.table_metadata = self.my_tables
+							event_time = binlogevent.timestamp
+							self.logger.debug("TOKEN: %s" % (token))
+							if len(token)>0:
+								query_data={
+									"binlog":log_file, 
+									"logpos":log_position, 
+									"schema": schema_name, 
+									"batch_id":id_batch, 
+									"log_table":log_table
+								}
+								pg_engine.write_ddl(token, query_data)
+								close_batch=True
+							
+						
+					self.sql_token.reset_lists()
+					if close_batch:
+						my_stream.close()
+						return [master_data, close_batch]
+			else:
+				size_insert=0
+				for row in binlogevent.rows:
+					add_row = True
+					log_file=binlogfile
+					log_position=binlogevent.packet.log_pos
+					table_name=binlogevent.table
+					event_time=binlogevent.timestamp
+					if init_table_name != table_name
+						continue
+					if table_name in inc_tables:
+						table_consistent = False
+						log_seq = int(log_file.split('.')[1])
+						log_pos = int(log_position)
+						table_dic = inc_tables[table_name]
+						if log_seq > table_dic["log_seq"]:
+							table_consistent = True
+						elif log_seq == table_dic["log_seq"] and log_pos >= table_dic["log_pos"]:
+							table_consistent = True
+							
+						if table_consistent:
+							add_row = True
+							self.logger.debug("CONSISTENT POINT FOR TABLE %s REACHED  - binlogfile %s, position %s" % (table_name, binlogfile, log_position))
+							pg_engine.set_consistent_table(table_name)
+							inc_tables = pg_engine.get_inconsistent_tables()
+						else:
+							add_row = False
+							
+					column_map=table_type_map[table_name]
+					global_data={
+										"binlog":log_file, 
+										"logpos":log_position, 
+										"schema": schema_name, 
+										"table": table_name, 
+										"batch_id":id_batch, 
+										"log_table":log_table, 
+										"event_time":event_time
+									}
+					event_data={}
+					event_update={}
+					if add_row:
+						event_insert = {}
+						if isinstance(binlogevent, DeleteRowsEvent):
+							global_data["action"] = "delete"
+							event_data=row["values"]
+						elif isinstance(binlogevent, UpdateRowsEvent):
+							global_data["action"] = "update"
+							event_data=row["after_values"]
+							event_update=row["before_values"]
+						elif isinstance(binlogevent, WriteRowsEvent):
+							global_data["action"] = "insert"
+							event_data=row["values"]
+						for column_name in event_data:
+							column_type=column_map[column_name]
+							if column_type in self.hexify and event_data[column_name]:
+								event_data[column_name]=binascii.hexlify(event_data[column_name]).decode()
+							elif column_type in self.hexify and isinstance(event_data[column_name], bytes):
+								event_data[column_name] = ''
+						for column_name in event_update:
+							column_type=column_map[column_name]
+							if column_type in self.hexify and event_update[column_name]:
+								event_update[column_name]=binascii.hexlify(event_update[column_name]).decode()
+							elif column_type in self.hexify and isinstance(event_update[column_name], bytes):
+								event_update[column_name] = ''
+						event_insert={"global_data":global_data,"event_data":event_data,  "event_update":event_update}
+						size_insert += len(str(event_insert))
+						group_insert.append(event_insert)
+						
+					master_data["File"]=log_file
+					master_data["Position"]=log_position
+					master_data["Time"]=event_time
+					
+					if len(group_insert)>=self.replica_batch_size:
+						self.logger.debug("Max rows per batch reached. Writing %s. rows. Size in bytes: %s " % (len(group_insert), size_insert))
+						self.logger.debug("Master coordinates: %s" % (master_data, ))
+						pg_engine.write_batch(group_insert)
+						size_insert=0
+						group_insert=[]
+						close_batch=True
+						
+		my_stream.close()
+		if len(group_insert)>0:
+			self.logger.debug("writing the last %s events" % (len(group_insert), ))
+			pg_engine.write_batch(group_insert)
+			close_batch=True
+
+
+	def save_init_table_data(self, pg_engine):
+		batch_data = pg_engine.get_batch_data()
+		last_binlog_position = batch_data[0][2]
+		sql_out = """
+			SELECT
+				i_id_init,
+				v_table_name,
+				t_binlog_name,
+				i_binlog_position
+			FROM
+				sch_chameleon.t_init_tables
+			;
+		"""
+		pg_engine.pg_conn.pgsql_cur.execute(sql_out)
+		init_results = self.pg_conn.pgsql_cur.fetchall()
+		for i in init_results:
+			if last_binlog_position > i[3]:
+				read_replica_for_table(i[1], i[3], last_binlog_position, i[2])
+				sql_id_batch = """
+					SELECT
+					  i_id_batch
+					FROM 
+					 	sch_chameleaon.t_log_replica
+					ORDER BY
+						i_my_event_time
+					LIMIT
+					  1
+				""" 
+				pg_engine.pg_conn.pgsql_cur.execute(sql_id_batch)
+				batch = self.pg_conn.pgsql_cur.fetchone()
+				id_batch = batch[0]
+				pg_engine.set_batch_processed(id_batch)
+		pg_engine.process_batch(self.replica_batch_size)
+
+
+	def save_master_status_for_table(self, table_name, pg_engine):
+		get_master_status()
+		t_binlog_name = self.master_status['File']
+		i_binlog_position = self.master_status['Position']
+		sql_init_table = """
+			INSERT INTO
+				sch_chameleon.t_init_tables
+				(
+					v_table_name,
+					t_binlog_name,
+					i_binlog_position
+				)
+			VALUES
+			 	(
+			 		%s,
+			 		%s,
+			 		%s
+			 	)
+		"""
+		pg_engine.pg_conn.pgsql_cur.execute(sql_init_table % (table_name, t_binlog_name, i_binlog_position, ))
+
+
 	def copy_table_data(self, pg_engine,  copy_max_memory, lock_tables=True):
 		"""
 			copy the table data from mysql to postgres
@@ -719,9 +958,7 @@ class mysql_engine(object):
 				total_rows=count_rows["table_rows"]
 				if total_rows == 0:
 				  continue
-				copy_limit=int(count_rows["copy_limit"])
-				if copy_limit == 0:
-					copy_limit=1000000
+				copy_limit=10000
 				primary_key_count = 1
 				file_part = 1
 				num_slices=int(total_rows//copy_limit)
@@ -767,9 +1004,10 @@ class mysql_engine(object):
 					primary_key_count+=copy_limit
 					file_part += 1
 					csv_file.close()
+					self.mysql_con.disconnect_db_ubf()
 				if lock_tables:
+					save_master_status_for_table(table_name, pg_engine)
 					self.unlock_table()
-				self.mysql_con.disconnect_db_ubf()
 				if total_rows > 0:
 					ins_arg=[]
 					ins_arg.append(total_rows)

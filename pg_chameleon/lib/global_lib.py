@@ -452,6 +452,7 @@ class replica_engine(object):
 			Otherwise sleeps for the amount or seconds set in sleep_loop.
 			
 		"""
+		self.my_eng.save_init_table_data(self.pg_eng)
 		replica_possible = self.my_eng.check_mysql_config()
 		if replica_possible:
 			self.logger.info("Configuration on MySQL allows replica.")
@@ -565,6 +566,7 @@ class replica_engine(object):
 			self.pg_eng.truncate_tables()
 		self.my_eng.copy_table_data(self.pg_eng, self.global_config.copy_max_memory)
 		self.pg_eng.save_master_status(self.my_eng.master_status, cleanup=True)
+
 
 	def sync_tables(self, table):
 		"""
