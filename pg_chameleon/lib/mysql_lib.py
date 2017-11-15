@@ -454,9 +454,13 @@ class mysql_engine(object):
 					THEN
 						concat('cast(`',column_name,'` AS unsigned)')
 					WHEN 
-						data_type IN ('datetime','timestamp','date')
+						data_type IN ('datetime','timestamp')
 					THEN
-						concat('nullif(`',column_name,'`,"0000-00-00 00:00:00")')
+						concat('IF(`',column_name,'`="0000-00-00 00:00:00", NOW(), `',column_name,'`)')
+					WHEN 
+						data_type IN ('date')
+					THEN
+						concat('cast(IF(`',column_name,'`="0000-00-00", CURDATE(), `',column_name,'`) as date)')
 
 				ELSE
 					concat('cast(`',column_name,'` AS char CHARACTER SET """+ self.mysql_con.my_charset +""")')
@@ -472,9 +476,13 @@ class mysql_engine(object):
 					THEN
 						concat('cast(`',column_name,'` AS unsigned) AS','`',column_name,'`')
 					WHEN 
-						data_type IN ('datetime','timestamp','date')
+						data_type IN ('datetime','timestamp')
 					THEN
-						concat('nullif(`',column_name,'`,"0000-00-00 00:00:00") AS `',column_name,'`')
+						concat('IF(`',column_name,'`="0000-00-00 00:00:00", NOW(), `',column_name,'`) AS `',column_name,'`')
+					WHEN 
+						data_type IN ('date')
+					THEN
+						concat('cast(IF(`',column_name,'`="0000-00-00", CURDATE(), `',column_name,'`) as date) AS `',column_name,'`')
 					
 				ELSE
 					concat('cast(`',column_name,'` AS char CHARACTER SET """+ self.mysql_con.my_charset +""") AS','`',column_name,'`')
@@ -972,7 +980,7 @@ class mysql_engine(object):
 				total_rows=count_rows["table_rows"]
 				if total_rows == 0:
 				  continue
-				if table_name == 'schema_migrations'
+				if table_name == 'schema_migrations' or table_name == 'ar_internal_metadata':
 					continue
 				copy_limit=100000
 				primary_key_count = 1
@@ -985,7 +993,7 @@ class mysql_engine(object):
 				columns_ins=self.generate_select(table_columns, mode="insert")
 				primary_key_index = -1
 				for index, columns in enumerate(table_columns):
-				  for key, value in c:
+				  for key, value in columns.items():
 				    if key == 'column_name' and value == 'id':
 				      primary_key_index = index
 
@@ -994,7 +1002,7 @@ class mysql_engine(object):
 				while True:
 					self.logger.debug("%s will be copied from primary key starting from %s slices of %s rows"  % (table_name, primary_key_count, total_rows))
 					csv_data=""
-					sql_out="SELECT "+columns_csv+" as data FROM "+table_name+" WHERE id >= "+str(primary_key_count)+" LIMIT "+str(copy_limit)+";"
+					sql_out="SELECT "+columns_csv+" as data FROM "+table_name+" WHERE id >= "+str(primary_key_count)+" ORDER BY id LIMIT "+str(copy_limit)+";"
 					try:
 						self.logger.debug("Executing query for table %s"  % (table_name, ))
 						self.mysql_con.my_cursor_ubf.execute(sql_out)
@@ -1004,7 +1012,7 @@ class mysql_engine(object):
 					if len(csv_results) == 0:
 						break
 					csv_data="\n".join(d[0] for d in csv_results )
-					if primary_key_index != -1
+					if primary_key_index != -1:
 						last_primary_key = int(csv_results[-1][0].split(',')[primary_key_index].replace('"', ''))
 					if self.mysql_con.copy_mode=='direct':
 						csv_file=io.StringIO()
