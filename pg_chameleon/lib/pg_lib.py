@@ -428,26 +428,26 @@ class pg_engine(object):
 					self.i_id_source, 
 					table_name, 
 					self.dest_schema, 
-					index["index_columns"].strip(), 
+					'"id"', 
 					binlog_file, 
 					binlog_pos
 					)
 				)
-		if table_no_pk:
-			self.logger.warning("Missing primary key. The table %s will not be replicated." % (table_name,))
-			sql_delete = """
-				DELETE FROM sch_chameleon.t_replica_tables
-				WHERE
-						i_id_source=%s
-					AND	v_table_name=%s
-					AND	v_schema_name=%s
-				;
-			"""
-			self.pg_conn.pgsql_cur.execute(sql_delete, (
-				self.i_id_source, 
-				table_name, 
-				self.dest_schema)
-				)
+		# if table_no_pk:
+		# 	self.logger.warning("Missing primary key. The table %s will not be replicated." % (table_name,))
+		# 	sql_delete = """
+		# 		DELETE FROM sch_chameleon.t_replica_tables
+		# 		WHERE
+		# 				i_id_source=%s
+		# 			AND	v_table_name=%s
+		# 			AND	v_schema_name=%s
+		# 		;
+		# 	"""
+		# 	self.pg_conn.pgsql_cur.execute(sql_delete, (
+		# 		self.i_id_source, 
+		# 		table_name, 
+		# 		self.dest_schema)
+		# 		)
 		
 	def unregister_table(self, table_name):
 		"""

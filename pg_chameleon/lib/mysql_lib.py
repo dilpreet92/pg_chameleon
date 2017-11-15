@@ -663,6 +663,7 @@ class mysql_engine(object):
 		master_data = {}
 		group_insert = []
 		log_file = t_binlog_name
+		log_file_name = int(t_binlog_name.split('.')[-1])
 		log_position = table_binlog_position
 		log_table = 't_log_replica'
 		id_batch = batch_data[0][0]
@@ -678,8 +679,6 @@ class mysql_engine(object):
 		)
 		for binlogevent in my_stream:
 			if isinstance(binlogevent, RotateEvent):
-				if binlogevent.position >= last_binlog_position:
-					continue
 				event_time = binlogevent.timestamp
 				binlogfile = binlogevent.next_binlog
 				position = binlogevent.position
@@ -702,8 +701,9 @@ class mysql_engine(object):
 					query_schema = binlogevent.schema.decode()
 				except:
 					query_schema = binlogevent.schema
-				if binlogevent.query.strip().upper() not in self.stat_skip and query_schema == self.my_schema: 
-					if binlogevent.packet.log_pos >= last_binlog_position:
+				if binlogevent.query.strip().upper() not in self.stat_skip and query_schema == self.my_schema:
+					binlog_file_position = int(binlogfile.split('.')[-1])
+					if (binlog_file_position < log_file_name) or (binlog_file_position == log_file_name and binlogevent.packet.log_pos <= last_binlog_position):
 						continue
 					log_position = binlogevent.packet.log_pos
 					master_data["File"] = binlogfile
@@ -759,8 +759,9 @@ class mysql_engine(object):
 					add_row = True
 					log_file=binlogfile
 					log_position=binlogevent.packet.log_pos
-					if binlogevent.packet.log_pos >= last_binlog_position:
-						continue 
+					binlog_file_position = int(binlogfile.split('.')[-1])
+					if (binlog_file_position < log_file_name) or (binlog_file_position == log_file_name and binlogevent.packet.log_pos <= last_binlog_position):
+						continue
 					table_name=binlogevent.table
 					event_time=binlogevent.timestamp
 					if init_table_name != table_name:
@@ -846,6 +847,7 @@ class mysql_engine(object):
 		pg_engine.set_source_id('running')
 		batch_data = pg_engine.get_batch_data()
 		last_binlog_position = batch_data[0][2]
+		last_binlog_file_name = int(batch_data[0][1].split('.')[-1])
 		sql_out = """
 			SELECT
 				i_id_init,
@@ -859,7 +861,8 @@ class mysql_engine(object):
 		pg_engine.pg_conn.pgsql_cur.execute(sql_out)
 		init_results = pg_engine.pg_conn.pgsql_cur.fetchall()
 		for i in init_results:
-			if last_binlog_position > i[3]:
+			table_binlog_file_name = int(i[2].split('.')[-1])
+			if (last_binlog_file_name > table_binlog_file_name) or ( last_binlog_file_name == table_binlog_file_name and last_binlog_position > i[3]):
 				self.read_replica_for_table(i[1], i[3], last_binlog_position, i[2], pg_engine, batch_data)
 				sql_id_batch = """
 					SELECT
@@ -877,7 +880,7 @@ class mysql_engine(object):
 				pg_engine.set_batch_processed(id_batch)
 		pg_engine.process_batch(self.replica_batch_size)
 		sql_delete = """
-			DELETE * FROM sch_chameleon.t_init_tables
+			DELETE FROM sch_chameleon.t_init_tables
 		"""
 		pg_engine.pg_conn.pgsql_cur.execute(sql_delete)
 
@@ -969,6 +972,8 @@ class mysql_engine(object):
 				total_rows=count_rows["table_rows"]
 				if total_rows == 0:
 				  continue
+				if table_name == 'schema_migrations'
+					continue
 				copy_limit=100000
 				primary_key_count = 1
 				file_part = 1
@@ -978,6 +983,12 @@ class mysql_engine(object):
 				# slice=range_slices[0]
 				columns_csv=self.generate_select(table_columns, mode="csv")
 				columns_ins=self.generate_select(table_columns, mode="insert")
+				primary_key_index = -1
+				for index, columns in enumerate(table_columns):
+				  for key, value in c:
+				    if key == 'column_name' and value == 'id':
+				      primary_key_index = index
+
 				self.logger.debug("Starting extraction loop for table %s"  % (table_name, ))
 				self.mysql_con.connect_db_ubf()
 				while True:
@@ -993,7 +1004,8 @@ class mysql_engine(object):
 					if len(csv_results) == 0:
 						break
 					csv_data="\n".join(d[0] for d in csv_results )
-					
+					if primary_key_index != -1
+						last_primary_key = int(csv_results[-1][0].split(',')[primary_key_index].replace('"', ''))
 					if self.mysql_con.copy_mode=='direct':
 						csv_file=io.StringIO()
 						csv_file.write(csv_data)
@@ -1012,7 +1024,7 @@ class mysql_engine(object):
 						# slice_insert.append(slice)
 						
 					# self.print_progress(slice+1,total_slices, table_name)
-					primary_key_count+=copy_limit
+					primary_key_count = last_primary_key + 1
 					file_part += 1
 					csv_file.close()
 				if lock_tables:
