@@ -11,7 +11,11 @@ copy_mode: 'file'
 out_dir: /tmp
 source_name: 'default'
 dest_schema: 'my_schema'
-
+aws_key: 'xxxxx'
+aws_secret: 'xxxx'
+airbrake_api_key: 'xxxx'
+airbrake_project_id: 'xxxx'
+environment: 'xxxx'
 
 #seconds between each replica loop
 sleep_loop: 10 

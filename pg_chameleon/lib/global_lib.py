@@ -9,6 +9,7 @@ from tabulate import tabulate
 from distutils.sysconfig import get_python_lib
 from shutil import copy
 import threading
+import airbrake
 
 class config_dir(object):
 	""" 
@@ -130,7 +131,10 @@ class global_config(object):
 			self.sleep_on_reindex = confdic["sleep_on_reindex"]
 			self.reindex_app_names = confdic["reindex_app_names"]
 			self.batch_retention = confdic["batch_retention"]
-			
+			self.airbrake_api_key = confdic["airbrake_api_key"]
+			self.airbrake_project_id = confdic["airbrake_project_id"]
+			self.environment = confdic["environment"]
+
 			self.log_file = os.path.expanduser(confdic["log_dir"])+config_name+'.log'
 			self.pid_file = os.path.expanduser(confdic["pid_dir"])+"/"+config_name+".pid"
 			self.exit_file = os.path.expanduser(confdic["pid_dir"])+"/"+config_name+".lock"
@@ -210,6 +214,7 @@ class replica_engine(object):
 			
 		fh.setFormatter(formatter)
 		self.logger.addHandler(fh)
+		self.logger.addHandler(airbrake.AirbrakeHandler(airbrake = None, level = logging.ERROR, project_id = self.global_config.airbrake_project_id, api_key = self.global_config.airbrake_api_key, environment = self.global_config.environment))
 
 		self.my_eng=mysql_engine(self.global_config, self.logger)
 		self.pg_eng=pg_engine(self.global_config, self.my_eng.my_tables, self.my_eng.table_file, self.logger, self.global_config.sql_dir)
