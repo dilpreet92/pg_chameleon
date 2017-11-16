@@ -493,6 +493,13 @@ class pg_engine(object):
 			self.pg_conn.pgsql_cur.execute(sql_drop)
 			
 	
+	def truncate_table(self, table_name):
+		self.set_search_path()
+		sql_truncate = """
+			DELETE FROM %s
+		"""
+		self.pg_conn.pgsql_cur.execute(sql_truncate % (table_name, ))
+
 	def create_tables(self):
 		"""
 			The method loops trough the list table_ddl and executes the creation scripts.
@@ -1312,6 +1319,7 @@ class pg_engine(object):
 				})
 			v_i_replayed = 0
 			v_i_ddl = 0
+			batch_sql=""
 			for i in result:
 				if i['enm_binlog_event'] == 'ddl':
 					v_i_ddl += 1
@@ -1319,112 +1327,116 @@ class pg_engine(object):
 				elif i['enm_binlog_event'] == 'insert':
 					v_i_replayed += 1
 					sql_insert="""
-						INSERT INTO %s (%s) VALUES (%s);
+						INSERT INTO {} ({}) VALUES ({});
 					"""
-					self.pg_conn.pgsql_cur.execute(sql_insert % (i['v_schema_name'] + '.' + i['v_table_name'], ','.join(i['t_column']), ','.join(['NULL' if v == None else "'"+str(v)+"'" for v in i['t_event_data']])))
+					batch_sql += sql_insert.format(i['v_schema_name'] + '.' + i['v_table_name'], ','.join(i['t_column']), ','.join(['NULL' if v == None else "'"+str(v).replace("'", "\\'")+"'" for v in i['t_event_data']]))
+					# self.pg_conn.pgsql_cur.execute()
 				elif i['enm_binlog_event'] == 'update':
 					v_i_replayed += 1
 					sql_update="""
-						UPDATE %s SET %s WHERE %s;
+						UPDATE {} SET {} WHERE {};
 					"""
-					self.pg_conn.pgsql_cur.execute(sql_update % (i['v_schema_name'] + '.' + i['v_table_name'], i['t_update'], i['t_pk_update']))
+					batch_sql += sql_update.format(i['v_schema_name'] + '.' + i['v_table_name'], i['t_update'], i['t_pk_update'])
+					# self.pg_conn.pgsql_cur.execute()
 				elif i['enm_binlog_event'] == 'delete':
 					v_i_replayed += 1
 					sql_delete="""
-						DELETE FROM %s WHERE %s;
+						DELETE FROM {} WHERE {};
 					"""
-					self.pg_conn.pgsql_cur.execute(sql_delete % (i['v_schema_name'] + '.' + i['v_table_name'], i['t_pk_data']))
-				if v_ts_evt_source:
-					sql_update_source = """
-						UPDATE sch_chameleon.t_sources 
+					batch_sql += sql_delete.format(i['v_schema_name'] + '.' + i['v_table_name'], i['t_pk_data'])
+					# self.pg_conn.pgsql_cur.execute()
+				self.pg_conn.pgsql_cur.execute(batch_sql)
+			if v_ts_evt_source:
+				sql_update_source = """
+					UPDATE sch_chameleon.t_sources 
+					SET
+						ts_last_replay=to_timestamp('%s', 'YYYY-MM-DD HH12:MI:SS')
+					WHERE 	
+						i_id_source=%s
+				"""
+				self.pg_conn.pgsql_cur.execute(sql_update_source % (str(v_ts_evt_source), i_id_source, ))
+			if v_i_replayed == 0 and v_i_ddl == 0:
+				sql_delete_replica = """
+					DELETE 
+					FROM sch_chameleon.t_log_replica
+					WHERE
+    			   i_id_batch=%s
+					;
+					UPDATE sch_chameleon.t_replica_batch  
+					SET 
+						b_replayed=True,
+						ts_replayed=getdate()
+					WHERE
+						i_id_batch=%s
+					;
+					DELETE FROM sch_chameleon.t_batch_events
+					WHERE
+						i_id_batch=%s
+					;
+				"""
+				self.pg_conn.pgsql_cur.execute(sql_update_source % (v_i_id_batch, v_i_id_batch, v_i_id_batch, ))
+				v_b_loop = False;
+			else:
+				sql_update_replica = """
+					UPDATE sch_chameleon.t_replica_batch  
+					SET 
+						i_ddl=coalesce(i_ddl,0)+%s,
+						i_replayed=coalesce(i_replayed,0)+%s,
+						ts_replayed=getdate()
+					WHERE
+						i_id_batch=%s
+					;
+
+					UPDATE sch_chameleon.t_batch_events
 						SET
-							ts_last_replay=to_timestamp('%s', 'YYYY-MM-DD HH12:MI:SS')
-						WHERE 	
-							i_id_source=%s
-					"""
-					self.pg_conn.pgsql_cur.execute(sql_update_source % (str(v_ts_evt_source), i_id_source, ))
-				if v_i_replayed == 0 and v_i_ddl == 0:
-					sql_delete_replica = """
-						DELETE 
-						FROM sch_chameleon.t_log_replica
-						WHERE
-	    			   i_id_batch=%s
-						;
-						UPDATE sch_chameleon.t_replica_batch  
-						SET 
-							b_replayed=True,
-							ts_replayed=getdate()
-						WHERE
+							i_id_event = '%s'
+					WHERE
+						i_id_batch=%s
+					;
+
+					DELETE FROM sch_chameleon.t_log_replica
+					WHERE
 							i_id_batch=%s
-						;
+						AND %s 
+					;
+				"""
+				v_i_evt_replay_string=""
+				for i, data in enumerate(v_i_evt_replay):
+					v_i_evt_replay_string += "i_id_event={}".format(data)
+					if i != len(v_i_evt_replay) - 1:
+						v_i_evt_replay_string += ' OR '
+				self.pg_conn.pgsql_cur.execute(sql_update_replica % (v_i_ddl, v_i_replayed, v_i_id_batch, str(v_i_evt_queue), v_i_id_batch, v_i_id_batch, v_i_evt_replay_string))
+				if not v_i_evt_queue:
+					sql_delete_batch_event = """
 						DELETE FROM sch_chameleon.t_batch_events
 						WHERE
-							i_id_batch=%s
-						;
-					"""
-					self.pg_conn.pgsql_cur.execute(sql_update_source % (v_i_id_batch, v_i_id_batch, v_i_id_batch, ))
-					v_b_loop = False;
-				else:
-					sql_update_replica = """
-						UPDATE sch_chameleon.t_replica_batch  
-						SET 
-							i_ddl=coalesce(i_ddl,0)+%s,
-							i_replayed=coalesce(i_replayed,0)+%s,
-							ts_replayed=getdate()
-						WHERE
-							i_id_batch=%s
-						;
-
-						UPDATE sch_chameleon.t_batch_events
-							SET
-								i_id_event = '%s'
-						WHERE
-							i_id_batch=%s
-						;
-
-						DELETE FROM sch_chameleon.t_log_replica
-						WHERE
 								i_id_batch=%s
-							AND %s 
-						;
+							AND i_id_event='%s'
 					"""
-					v_i_evt_replay_string=""
-					for i, data in enumerate(v_i_evt_replay):
-						v_i_evt_replay_string += "i_id_event={}".format(data)
-						if i != len(v_i_evt_replay) - 1:
-							v_i_evt_replay_string += ' OR '
-					self.pg_conn.pgsql_cur.execute(sql_update_replica % (v_i_ddl, v_i_replayed, v_i_id_batch, str(v_i_evt_queue), v_i_id_batch, v_i_id_batch, v_i_evt_replay_string))
-					if not v_i_evt_queue:
-						sql_delete_batch_event = """
-							DELETE FROM sch_chameleon.t_batch_events
-							WHERE
-									i_id_batch=%s
-								AND i_id_event='%s'
-						"""
-						self.pg_conn.pgsql_cur.execute(sql_delete_batch_event % (v_i_id_batch, v_i_evt_queue))
-					v_b_loop = True;
-				sql_batch="""
-					SELECT
-						bat.i_id_batch AS v_i_id_batch
-					FROM
-						sch_chameleon.t_replica_batch bat
-						INNER JOIN  sch_chameleon.t_batch_events evt
-						ON
-							evt.i_id_batch=bat.i_id_batch
-					WHERE
-							bat.b_started
-						AND	bat.b_processed
-						AND	NOT bat.b_replayed
-						AND	bat.i_id_source=%s
-					ORDER BY
-						bat.ts_created 
-					LIMIT 1
-				"""
-				self.pg_conn.pgsql_cur.execute(sql_batch, (i_id_source, ))
-				batch_result = self.pg_conn.pgsql_cur.fetchone()
-				if batch_result:
-					v_b_loop = True;
-				return v_b_loop
+					self.pg_conn.pgsql_cur.execute(sql_delete_batch_event % (v_i_id_batch, v_i_evt_queue))
+				v_b_loop = True;
+			sql_batch="""
+				SELECT
+					bat.i_id_batch AS v_i_id_batch
+				FROM
+					sch_chameleon.t_replica_batch bat
+					INNER JOIN  sch_chameleon.t_batch_events evt
+					ON
+						evt.i_id_batch=bat.i_id_batch
+				WHERE
+						bat.b_started
+					AND	bat.b_processed
+					AND	NOT bat.b_replayed
+					AND	bat.i_id_source=%s
+				ORDER BY
+					bat.ts_created 
+				LIMIT 1
+			"""
+			self.pg_conn.pgsql_cur.execute(sql_batch, (i_id_source, ))
+			batch_result = self.pg_conn.pgsql_cur.fetchone()
+			if batch_result:
+				v_b_loop = True;
+			return v_b_loop
 			# sql_vr_rows="""
 			# 	SELECT 
 			# 		CASE

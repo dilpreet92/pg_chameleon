@@ -9,6 +9,7 @@ from pymysqlreplication.row_event import DeleteRowsEvent,UpdateRowsEvent,WriteRo
 from pymysqlreplication.event import RotateEvent
 from pg_chameleon import sql_token
 from os import remove
+import sys 
 
 class mysql_connection(object):
 	def __init__(self, global_config):
@@ -884,8 +885,9 @@ class mysql_engine(object):
 				""" 
 				pg_engine.pg_conn.pgsql_cur.execute(sql_id_batch)
 				batch = pg_engine.pg_conn.pgsql_cur.fetchone()
-				id_batch = batch[0]
-				pg_engine.set_batch_processed(id_batch)
+				if batch:
+					id_batch = batch[0]
+					pg_engine.set_batch_processed(id_batch)
 		pg_engine.process_batch(self.replica_batch_size)
 		sql_delete = """
 			DELETE FROM sch_chameleon.t_init_tables
@@ -914,6 +916,110 @@ class mysql_engine(object):
 		"""
 		pg_engine.pg_conn.pgsql_cur.execute(sql_init_table % (table_name, t_binlog_name, i_binlog_position, ))
 
+
+	def copy_table_data_table(self, pg_engine, copy_max_memory, table_name, lock_tables=True):
+		if lock_tables:
+			self.lock_table(table_name)
+		slice_insert=[]
+		
+		try:
+			table=self.my_tables[table_name]
+			self.logger.info("copying table %s" %(table_name))
+			table_name=table["name"]
+			table_columns=table["columns"]
+			self.logger.debug("estimating rows in "+table_name)
+			sql_count=""" 
+				SELECT 
+					(select count(1) from """+table_name+""") as table_rows,
+					CASE
+						WHEN avg_row_length>0
+						then
+							round(("""+copy_max_memory+"""/avg_row_length))
+					ELSE
+						0
+					END as copy_limit
+				FROM 
+					information_schema.TABLES 
+				WHERE 
+						table_schema=%s 
+					AND	table_type='BASE TABLE'
+					AND table_name=%s 
+				;
+			"""
+			self.mysql_con.my_cursor.execute(sql_count, (self.mysql_con.my_database, table_name))
+			count_rows=self.mysql_con.my_cursor.fetchone()
+			total_rows=count_rows["table_rows"]
+			if total_rows == 0:
+			  continue
+			if table_name == 'schema_migrations' or table_name == 'ar_internal_metadata':
+				continue
+			copy_limit=100000
+			primary_key_count = -sys.maxsize
+			file_part = 1
+			num_slices=int(total_rows//copy_limit)
+			# range_slices=list(range(num_slices+1))
+			# total_slices=len(range_slices)
+			# slice=range_slices[0]
+			columns_csv=self.generate_select(table_columns, mode="csv")
+			columns_ins=self.generate_select(table_columns, mode="insert")
+			primary_key_index = -1
+			for index, columns in enumerate(table_columns):
+			  for key, value in columns.items():
+			    if key == 'column_name' and value == 'id':
+			      primary_key_index = index
+
+			self.logger.debug("Starting extraction loop for table %s"  % (table_name, ))
+			self.mysql_con.connect_db_ubf()
+			while True:
+				self.logger.debug("%s will be copied from primary key starting from %s slices of %s rows"  % (table_name, primary_key_count, total_rows))
+				csv_data=""
+				sql_out="SELECT "+columns_csv+" as data FROM "+table_name+" WHERE id >= "+str(primary_key_count)+" ORDER BY id LIMIT "+str(copy_limit)+";"
+				try:
+					self.logger.debug("Executing query for table %s"  % (table_name, ))
+					self.mysql_con.my_cursor_ubf.execute(sql_out)
+				except:
+					self.logger.error("error when pulling data from %s. sql executed: %s" % (table_name, sql_out))
+				csv_results = self.mysql_con.my_cursor_ubf.fetchmany(copy_limit)
+				if len(csv_results) == 0:
+					break
+				csv_data="\n".join(d[0] for d in csv_results )
+				if primary_key_index != -1:
+					last_primary_key = int(csv_results[-1][0].split(',')[primary_key_index].replace('"', ''))
+				if self.mysql_con.copy_mode=='direct':
+					csv_file=io.StringIO()
+					csv_file.write(csv_data)
+					csv_file.seek(0)
+
+				if self.mysql_con.copy_mode=='file':
+					csv_file=codecs.open(out_file, 'wb', self.mysql_con.my_charset)
+					csv_file.write(csv_data)
+					csv_file.close()
+					csv_file=open(out_file, 'rb')
+					
+				try:
+					pg_engine.copy_data(file_part, table_name, csv_file, self.my_tables)
+				except:
+					self.logger.info("table %s error in PostgreSQL copy, saving slice number for the fallback to insert statements " % (table_name, ))
+					# slice_insert.append(slice)
+					
+				# self.print_progress(slice+1,total_slices, table_name)
+				primary_key_count = last_primary_key + 1
+				file_part += 1
+				csv_file.close()
+			if lock_tables:
+				self.save_master_status_for_table(table_name, pg_engine)
+				self.unlock_table()
+			self.mysql_con.disconnect_db_ubf()
+			if total_rows > 0:
+				ins_arg=[]
+				ins_arg.append(total_rows)
+				ins_arg.append(table_name)
+				ins_arg.append(columns_ins)
+				ins_arg.append(copy_limit)
+				self.insert_table_data(pg_engine, ins_arg)
+		except Exception as e:
+			self.logger.info("the table %s does not exist" %(table_name))
+		
 
 	def copy_table_data(self, pg_engine,  copy_max_memory, lock_tables=True):
 		"""
