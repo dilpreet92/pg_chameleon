@@ -1148,7 +1148,7 @@ class pg_engine(object):
 				from 's3://labs-core-dms/%s' credentials 'aws_access_key_id=%s;aws_secret_access_key=%s' csv TRUNCATECOLUMNS;
 			"""
             self.pg_conn.pgsql_cur.execute(redshift_copy % ("sch_chameleon"+'.'+'t_log_replica', 'replica_log', self.aws_key, self.aws_secret))
-
+            self.s3_client.delete_object(Bucket='labs-core-dms', Key='replica_log' + '/' + 'part_0000000001.csv')
         # sql_copy="""
         # 	COPY "sch_chameleon"."""+log_table+"""
         # 		(
@@ -1350,7 +1350,7 @@ class pg_engine(object):
                     sql_insert="""
 						INSERT INTO {} ({}) VALUES ({});
 					"""
-                    batch_sql += sql_insert.format(i['v_schema_name'] + '.' + i['v_table_name'], ','.join(i['t_column']), ','.join(['NULL' if v == None else "'"+str(v).replace("'", "\\'")+"'" for v in i['t_event_data']]))
+                    batch_sql += sql_insert.format(i['v_schema_name'] + '.' + i['v_table_name'], ','.join('"' + v + '"' for v in i['t_column']), ','.join(['NULL' if v == None else "'"+str(v).replace("'", "\\'")+"'" for v in i['t_event_data']]))
                 # self.pg_conn.pgsql_cur.execute()
                 elif i['enm_binlog_event'] == 'update':
                     v_i_replayed += 1

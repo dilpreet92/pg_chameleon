@@ -287,6 +287,8 @@ class mysql_engine(object):
             size_insert=0
             group_insert=[]
             close_batch=True
+            my_stream.close()
+            return [master_data, close_batch]
 
 
 
