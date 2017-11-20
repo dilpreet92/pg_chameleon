@@ -265,6 +265,7 @@ class replica_engine(object):
 		self.copy_table_data()
 		self.create_indices()
 		self.pg_eng.set_source_id('initialised')
+		self.pg_eng.delete_s3_files()
 
 	def wait_for_replica_end(self):
 		""" 
@@ -307,7 +308,7 @@ class replica_engine(object):
 		except:
 			self.logger.info("Replica already enabled")
 			
-	def  create_schema(self):
+	def create_schema(self):
 		"""
 			Creates the database schema on PostgreSQL using the metadata extracted from MySQL.
 		"""
@@ -408,9 +409,10 @@ class replica_engine(object):
 			time.sleep(self.sleep_loop)
 
 	def drop_and_reload_table(self, table_name):
-		self.pg_engine.truncate_table(table_name)
+		self.pg_engine.drop_and_reload_table(table_name)
 		self.my_eng.copy_table_data_table(self.pg_eng, self.global_config.copy_max_memory, table_name)
-			
+		self.pg_engine.drop_and_rename_table(table_name)
+
 	def run_replica_thread(self):
 		"""
 			Threaded version of run replica.

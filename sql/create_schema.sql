@@ -113,7 +113,7 @@ CREATE TABLE sch_chameleon.t_index_def
 CREATE TABLE sch_chameleon.t_batch_events
 (
 	i_id_batch	bigint NOT NULL,
-	I_id_event	character varying(65336) NOT NULL,
+	I_id_event	character varying(65535) NOT NULL,
 	CONSTRAINT pk_t_batch_id_events PRIMARY KEY (i_id_batch)
 );
 

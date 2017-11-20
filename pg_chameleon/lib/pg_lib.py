@@ -493,12 +493,23 @@ class pg_engine(object):
 			self.pg_conn.pgsql_cur.execute(sql_drop)
 			
 	
-	def truncate_table(self, table_name):
+	def drop_and_reload_table(self, table_name):
 		self.set_search_path()
-		sql_truncate = """
-			DELETE FROM %s
+		sql_create = """
+			CREATE TABLE IF NOT EXISTS %s
+      (
+        LIKE %s
+      )
+			;
 		"""
-		self.pg_conn.pgsql_cur.execute(sql_truncate % (table_name, ))
+		self.pg_conn.pgsql_cur.execute(sql_create % (table_name + '_new', table_name))
+
+	def drop_and_rename_table(self, table_name):
+		sql_drop_and_rename = """
+			DROP TABLE %s;
+			ALTER TABLE %s RENAME TO %s;
+		"""
+		self.pg_conn.pgsql_cur.execute(sql_drop_and_rename % (table_name, table_name + '_new', table_name))
 
 	def create_tables(self):
 		"""
@@ -1288,7 +1299,7 @@ class pg_engine(object):
 			for i in evt_source_result:
 				event_data = json.loads(i[5]) if i[5] else None
 				update_data = json.loads(i[6]) if i[6] else None
-				if event_data:
+				if event_data and ('id' in event_data):
 					t_pk_data = "id=" + str(event_data["id"])
 					t_column = event_data.keys()
 					t_event_data = event_data.values()
@@ -1297,26 +1308,27 @@ class pg_engine(object):
 					t_column = None
 					t_event_data = None
 				if update_data:
-					t_update = ", ".join(["=".join([key, 'NULL' if val == None else "'"+str(val)+"'"]) for key, val in update_data.items()])
+					t_update = ", ".join(["=".join([key, 'NULL' if val == None else "'"+str(val).replace("'", "\\'")+"'"]) for key, val in update_data.items()])
 					t_pk_update = "id=" + str(update_data["id"])
 					t_event_data = update_data.values()
 				else:
 					t_update = None
 					t_pk_update = 'id=NULL'
-				result.append({
-					'i_id_event': i[0],
-					'i_id_batch': i[1],
-					'v_table_name': i[2],
-					'v_schema_name': i[3],
-					'enm_binlog_event': i[4],
-					't_query': i[7],
-					'ts_event_datetime': i[8],
-					't_pk_data': t_pk_data,
-					't_pk_update': t_pk_update,
-					't_column': t_column,
-					't_update': t_update,
-					't_event_data': t_event_data
-				})
+				if (event_data and ('id' in event_data)) or (update_data):
+					result.append({
+						'i_id_event': i[0],
+						'i_id_batch': i[1],
+						'v_table_name': i[2],
+						'v_schema_name': i[3],
+						'enm_binlog_event': i[4],
+						't_query': i[7],
+						'ts_event_datetime': i[8],
+						't_pk_data': t_pk_data,
+						't_pk_update': t_pk_update,
+						't_column': t_column,
+						't_update': t_update,
+						't_event_data': t_event_data
+					})
 			v_i_replayed = 0
 			v_i_ddl = 0
 			batch_sql=""
@@ -1345,6 +1357,7 @@ class pg_engine(object):
 					"""
 					batch_sql += sql_delete.format(i['v_schema_name'] + '.' + i['v_table_name'], i['t_pk_data'])
 					# self.pg_conn.pgsql_cur.execute()
+			if batch_sql:
 				self.pg_conn.pgsql_cur.execute(batch_sql)
 			if v_ts_evt_source:
 				sql_update_source = """
@@ -1374,7 +1387,7 @@ class pg_engine(object):
 						i_id_batch=%s
 					;
 				"""
-				self.pg_conn.pgsql_cur.execute(sql_update_source % (v_i_id_batch, v_i_id_batch, v_i_id_batch, ))
+				self.pg_conn.pgsql_cur.execute(sql_delete_replica % (v_i_id_batch, v_i_id_batch, v_i_id_batch, ))
 				v_b_loop = False;
 			else:
 				sql_update_replica = """
@@ -2356,4 +2369,10 @@ class pg_engine(object):
 			;
 		"""
 		self.pg_conn.pgsql_cur.execute(sql_clean, (self.table_limit, self.i_id_source, ))
+
+	def delete_s3_files(self):
+		bucket = self.s3_client.get_bucket('labs-core-dms')
+		for key in bucket.list():
+			key.delete()
+
 		
