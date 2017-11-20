@@ -94,6 +94,7 @@ class pg_engine(object):
 	"""
 	def __init__(self, global_config, table_metadata, table_file, logger, sql_dir='sql/'):
 		self.sleep_on_reindex = global_config.sleep_on_reindex
+		self.airbrakeLogger = global_config.airbrakeLogger
 		self.reindex_app_names = global_config.reindex_app_names
 		self.aws_key = global_config.aws_key
 		self.aws_secret = global_config.aws_secret
@@ -352,6 +353,7 @@ class pg_engine(object):
 			self.dest_schema = source_data[1]
 			self.source_name = source_name
 		except:
+			self.airbrakeLogger.notify("Source %s is not registered." % source_name)
 			print("Source %s is not registered." % source_name)
 			sys.exit()
 	
@@ -531,6 +533,7 @@ class pg_engine(object):
 			try:
 				self.pg_conn.pgsql_cur.execute(sql_create)
 			except psycopg2.Error as e:
+				self.airbrakeLogger.notify(e)
 				self.logger.error("SQLCODE: %s SQLERROR: %s" % (e.pgcode, e.pgerror))
 				self.logger.error(sql_create)
 				
@@ -589,8 +592,9 @@ class pg_engine(object):
 			try:
 				self.pg_conn.pgsql_cur.execute(sql_head,column_values)	
 			except psycopg2.Error as e:
-					self.logger.error("SQLCODE: %s SQLERROR: %s" % (e.pgcode, e.pgerror))
-					self.logger.error(self.pg_conn.pgsql_cur.mogrify(sql_head,column_values))
+				self.airbrakeLogger.notify(e)
+				self.logger.error("SQLCODE: %s SQLERROR: %s" % (e.pgcode, e.pgerror))
+				self.logger.error(self.pg_conn.pgsql_cur.mogrify(sql_head,column_values))
 			except:
 				self.logger.error("unexpected error when processing the row")
 				self.logger.error(" - > Table: %s" % table)
@@ -945,6 +949,7 @@ class pg_engine(object):
 			results=self.pg_conn.pgsql_cur.fetchone()
 			next_batch_id=results[0]
 		except psycopg2.Error as e:
+					self.airbrakeLogger.notify(e)
 					self.logger.error("SQLCODE: %s SQLERROR: %s" % (e.pgcode, e.pgerror))
 					self.logger.error(self.pg_conn.pgsql_cur.mogrify(sql_master, (self.i_id_source, binlog_name, binlog_position)))
 		try:
@@ -1072,6 +1077,7 @@ class pg_engine(object):
 					)
 				)
 			except:
+				self.airbrakeLogger.notify("error when storing event data. saving the discarded row")
 				self.logger.error("error when storing event data. saving the discarded row")
 				self.save_discarded_row(row_data,global_data["batch_id"])
 	
@@ -1164,6 +1170,7 @@ class pg_engine(object):
 			# """
 			# self.pg_conn.pgsql_cur.copy_expert(sql_copy,csv_file)
 		except psycopg2.Error as e:
+			self.airbrakeLogger.notify(e)
 			self.logger.error("SQLCODE: %s SQLERROR: %s" % (e.pgcode, e.pgerror))
 			# self.logger.error(csv_file.read())
 			self.logger.error("fallback to inserts")
@@ -1736,6 +1743,7 @@ class pg_engine(object):
 				self.logger.info("resetting the sequence  %s" % statement[1])
 				self.pg_conn.pgsql_cur.execute(statement[0])
 		except psycopg2.Error as e:
+					self.airbrakeLogger.notify(e)
 					self.logger.error("SQLCODE: %s SQLERROR: %s" % (e.pgcode, e.pgerror))
 					self.logger.error(statement)
 		except:

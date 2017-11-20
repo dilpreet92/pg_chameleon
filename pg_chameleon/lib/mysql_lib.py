@@ -87,6 +87,7 @@ class mysql_engine(object):
     self.stat_skip = ['BEGIN', 'COMMIT']
     self.tables_limit = global_config.tables_limit
     self.my_schema = global_config.my_database
+    self.airbrakeLogger = global_config.airbrakeLogger
   
   def read_replica(self, batch_data, pg_engine):
     """
@@ -1018,6 +1019,7 @@ class mysql_engine(object):
         ins_arg.append(copy_limit)
         self.insert_table_data(pg_engine, ins_arg)
     except Exception as e:
+      self.airbrakeLogger.notify(e)
       self.logger.info("the table %s does not exist" %(table_name))
     
 
@@ -1153,6 +1155,7 @@ class mysql_engine(object):
           ins_arg.append(copy_limit)
           self.insert_table_data(pg_engine, ins_arg)
       except Exception as e:
+        self.airbrakeLogger.notify(e)
         self.logger.info("the table %s does not exist" %(table_name))
     try:
       remove(out_file)

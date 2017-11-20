@@ -134,6 +134,7 @@ class global_config(object):
 			self.airbrake_api_key = confdic["airbrake_api_key"]
 			self.airbrake_project_id = confdic["airbrake_project_id"]
 			self.environment = confdic["environment"]
+			self.airbrakeLogger = airbrake.getLogger(api_key = self.airbrake_api_key, project_id = self.airbrake_project_id, environment = self.environment)
 
 			self.log_file = os.path.expanduser(confdic["log_dir"])+config_name+'.log'
 			self.pid_file = os.path.expanduser(confdic["pid_dir"])+"/"+config_name+".pid"
@@ -214,7 +215,6 @@ class replica_engine(object):
 			
 		fh.setFormatter(formatter)
 		self.logger.addHandler(fh)
-		self.logger.addHandler(airbrake.AirbrakeHandler(airbrake = None, level = logging.ERROR, project_id = self.global_config.airbrake_project_id, api_key = self.global_config.airbrake_api_key, environment = self.global_config.environment))
 
 		self.my_eng=mysql_engine(self.global_config, self.logger)
 		self.pg_eng=pg_engine(self.global_config, self.my_eng.my_tables, self.my_eng.table_file, self.logger, self.global_config.sql_dir)
@@ -222,6 +222,7 @@ class replica_engine(object):
 		
 		self.pid_file = self.global_config.pid_file
 		self.exit_file = self.global_config.exit_file
+		self.airbrakeLogger = self.global_config.airbrakeLogger
 	
 	def detach_replica(self):
 		"""
