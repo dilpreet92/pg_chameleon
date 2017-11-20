@@ -410,9 +410,9 @@ class replica_engine(object):
 			time.sleep(self.sleep_loop)
 
 	def drop_and_reload_table(self, table_name):
-		self.pg_engine.drop_and_reload_table(table_name)
+		self.pg_eng.drop_and_reload_table(table_name)
 		self.my_eng.copy_table_data_table(self.pg_eng, self.global_config.copy_max_memory, table_name)
-		self.pg_engine.drop_and_rename_table(table_name)
+		self.pg_eng.drop_and_rename_table(table_name)
 
 	def run_replica_thread(self):
 		"""

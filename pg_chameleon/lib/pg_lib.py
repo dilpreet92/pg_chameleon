@@ -496,12 +496,13 @@ class pg_engine(object):
 			
 	
 	def drop_and_reload_table(self, table_name):
+        self.set_source_id('Running')
 		self.set_search_path()
 		sql_create = """
 			CREATE TABLE IF NOT EXISTS %s
-      (
-        LIKE %s
-      )
+              (
+                LIKE %s
+              )
 			;
 		"""
 		self.pg_conn.pgsql_cur.execute(sql_create % (table_name + '_new', table_name))
@@ -2378,9 +2379,15 @@ class pg_engine(object):
 		"""
 		self.pg_conn.pgsql_cur.execute(sql_clean, (self.table_limit, self.i_id_source, ))
 
+	def delete_s3_object(self, key):
+        object = self.s3_client.list_objects(Bucket='labs-core-dms')
+        for content in object['Contents']:
+            if key in content['Key']:
+                self.s3_client.delete_object(Bucket='labs-core-dms', Key=content['Key'])
+
 	def delete_s3_files(self):
-		bucket = self.s3_client.get_bucket('labs-core-dms')
-		for key in bucket.list():
-			key.delete()
+		object = self.s3_client.list_objects(Bucket='labs-core-dms')
+		for content in object['Contents']:
+			self.s3_client.delete_object(Bucket='labs-core-dms', Key=content['Key'])
 
 		

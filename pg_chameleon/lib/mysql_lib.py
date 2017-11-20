@@ -638,7 +638,14 @@ class mysql_engine(object):
         column_list.append(column["column_select"])
       columns=','.join(column_list)
     return columns
-  
+
+  def insert_table_data_table(self, pg_engine, ins_arg):
+    redshift_copy = """
+      COPY %s from 's3://labs-core-dms/%s' credentials 'aws_access_key_id=%s;aws_secret_access_key=%s' csv TRUNCATECOLUMNS;
+    """
+    pg_engine.pg_conn.pgsql_cur.execute(
+      redshift_copy % (pg_engine.dest_schema + '.' + ins_arg[1] + '_new', ins_arg[1], pg_engine.aws_key, pg_engine.aws_secret))
+    pg_engine.delete_s3_object(ins_arg[1])
 
   def insert_table_data(self, pg_engine, ins_arg):
     """
@@ -951,9 +958,9 @@ class mysql_engine(object):
       count_rows=self.mysql_con.my_cursor.fetchone()
       total_rows=count_rows["table_rows"]
       if total_rows == 0:
-        continue
+        return
       if table_name == 'schema_migrations' or table_name == 'ar_internal_metadata':
-        continue
+        return
       copy_limit=100000
       primary_key_count = -sys.maxsize
       file_part = 1
@@ -1017,7 +1024,7 @@ class mysql_engine(object):
         ins_arg.append(table_name)
         ins_arg.append(columns_ins)
         ins_arg.append(copy_limit)
-        self.insert_table_data(pg_engine, ins_arg)
+        self.insert_table_data_table(pg_engine, ins_arg)
     except Exception as e:
       self.airbrakeLogger.notify(e)
       self.logger.info("the table %s does not exist" %(table_name))
