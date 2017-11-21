@@ -99,6 +99,7 @@ class pg_engine(object):
         self.reindex_app_names = global_config.reindex_app_names
         self.aws_key = global_config.aws_key
         self.aws_secret = global_config.aws_secret
+        self.aws_bucket = global_config.aws_bucket
         self.batch_retention = global_config.batch_retention
         self.type_override = global_config.type_override
         self.logger = logger
@@ -569,7 +570,7 @@ class pg_engine(object):
         # sql_copy="COPY "+'"'+self.dest_schema+'"'+"."+'"'+table+'"'+" ("+','.join(column_copy)+") FROM STDIN WITH NULL 'NULL' CSV QUOTE '\"' DELIMITER',' ESCAPE '\"' ; "
         # self.pg_conn.pgsql_cur.copy_expert(sql_copy,csv_file)
         csv_file.seek(0)
-        self.s3_client.put_object( Bucket='labs-core-dms', Key=table + '/' + 'part_000000000' + str(file_part) + '.csv', Body=csv_file.read())
+        self.s3_client.put_object( Bucket=self.aws_bucket, Key=table + '/' + 'part_000000000' + str(file_part) + '.csv', Body=csv_file.read())
 
     def insert_data(self, table,  insert_data,  my_tables={}):
         """
@@ -1129,7 +1130,7 @@ class pg_engine(object):
             event_time = global_data["event_time"]
             spamwriter.writerow([global_data["batch_id"], global_data["table"], self.dest_schema, global_data["action"], global_data["binlog"], global_data["logpos"], json.dumps(event_data, cls=pg_encoder), json.dumps(event_update, cls=pg_encoder), event_time])
         csv_file.seek(0)
-        self.s3_client.put_object( Bucket='labs-core-dms', Key='replica_log' + '/' + 'part_0000000001.csv', Body=csv_file.read())
+        self.s3_client.put_object( Bucket=self.aws_bucket, Key='replica_log' + '/' + 'part_0000000001.csv', Body=csv_file.read())
         try:
 
             redshift_copy = """
@@ -1145,10 +1146,10 @@ class pg_engine(object):
 						jsb_event_update,
 						i_my_event_time
 					)
-				from 's3://labs-core-dms/%s' credentials 'aws_access_key_id=%s;aws_secret_access_key=%s' csv TRUNCATECOLUMNS;
+				from 's3://%s/%s' credentials 'aws_access_key_id=%s;aws_secret_access_key=%s' csv TRUNCATECOLUMNS;
 			"""
-            self.pg_conn.pgsql_cur.execute(redshift_copy % ("sch_chameleon"+'.'+'t_log_replica', 'replica_log', self.aws_key, self.aws_secret))
-            self.s3_client.delete_object(Bucket='labs-core-dms', Key='replica_log' + '/' + 'part_0000000001.csv')
+            self.pg_conn.pgsql_cur.execute(redshift_copy % ("sch_chameleon"+'.'+'t_log_replica', self.aws_bucket, 'replica_log', self.aws_key, self.aws_secret))
+            self.s3_client.delete_object(Bucket=self.aws_bucket, Key='replica_log' + '/' + 'part_0000000001.csv')
         # sql_copy="""
         # 	COPY "sch_chameleon"."""+log_table+"""
         # 		(
@@ -2381,14 +2382,14 @@ class pg_engine(object):
         self.pg_conn.pgsql_cur.execute(sql_clean, (self.table_limit, self.i_id_source, ))
 
     def delete_s3_object(self, key):
-        object = self.s3_client.list_objects(Bucket='labs-core-dms')
+        object = self.s3_client.list_objects(Bucket=self.aws_bucket)
         for content in object['Contents']:
             if key in content['Key']:
-                self.s3_client.delete_object(Bucket='labs-core-dms', Key=content['Key'])
+                self.s3_client.delete_object(Bucket=self.aws_bucket, Key=content['Key'])
 
     def delete_s3_files(self):
-        object = self.s3_client.list_objects(Bucket='labs-core-dms')
+        object = self.s3_client.list_objects(Bucket=self.aws_bucket)
         for content in object['Contents']:
-            self.s3_client.delete_object(Bucket='labs-core-dms', Key=content['Key'])
+            self.s3_client.delete_object(Bucket=self.aws_bucket, Key=content['Key'])
 
 

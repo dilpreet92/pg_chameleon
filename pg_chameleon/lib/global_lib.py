@@ -126,6 +126,7 @@ class global_config(object):
 			self.type_override = confdic["type_override"]
 			self.aws_key = confdic["aws_key"]
 			self.aws_secret = confdic["aws_secret"]
+			self.aws_bucket = confdic["aws_bucket"]
 			self.sleep_loop = confdic["sleep_loop"]
 			self.pause_on_reindex = confdic["pause_on_reindex"]
 			self.sleep_on_reindex = confdic["sleep_on_reindex"]

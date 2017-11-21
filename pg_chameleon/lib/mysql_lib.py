@@ -88,6 +88,7 @@ class mysql_engine(object):
     self.tables_limit = global_config.tables_limit
     self.my_schema = global_config.my_database
     self.airbrakeLogger = global_config.airbrakeLogger
+    self.aws_bucket = global_config.aws_bucket
 
   def read_replica(self, batch_data, pg_engine):
     """
@@ -643,10 +644,10 @@ class mysql_engine(object):
 
   def insert_table_data_table(self, pg_engine, ins_arg):
     redshift_copy = """
-      COPY %s from 's3://labs-core-dms/%s' credentials 'aws_access_key_id=%s;aws_secret_access_key=%s' csv TRUNCATECOLUMNS;
+      COPY %s from 's3://%s/%s' credentials 'aws_access_key_id=%s;aws_secret_access_key=%s' csv TRUNCATECOLUMNS;
     """
     pg_engine.pg_conn.pgsql_cur.execute(
-      redshift_copy % (pg_engine.dest_schema + '.' + ins_arg[1] + '_new', ins_arg[1], pg_engine.aws_key, pg_engine.aws_secret))
+      redshift_copy % (pg_engine.dest_schema + '.' + ins_arg[1] + '_new', self.aws_bucket, ins_arg[1], pg_engine.aws_key, pg_engine.aws_secret))
     pg_engine.delete_s3_object(ins_arg[1])
 
   def insert_table_data(self, pg_engine, ins_arg):
@@ -669,9 +670,9 @@ class mysql_engine(object):
     #   insert_data =  self.mysql_con.my_cursor_fallback.fetchall()
     #   pg_engine.insert_data(table_name, insert_data , self.my_tables)
     redshift_copy = """
-      COPY %s from 's3://labs-core-dms/%s' credentials 'aws_access_key_id=%s;aws_secret_access_key=%s' csv TRUNCATECOLUMNS;
+      COPY %s from 's3://%s/%s' credentials 'aws_access_key_id=%s;aws_secret_access_key=%s' csv TRUNCATECOLUMNS;
     """
-    pg_engine.pg_conn.pgsql_cur.execute(redshift_copy % (pg_engine.dest_schema+'.'+ins_arg[1], ins_arg[1], pg_engine.aws_key, pg_engine.aws_secret))
+    pg_engine.pg_conn.pgsql_cur.execute(redshift_copy % (pg_engine.dest_schema+'.'+ins_arg[1], self.aws_bucket, ins_arg[1], pg_engine.aws_key, pg_engine.aws_secret))
 
 
   def read_replica_for_table(self, init_table_name, table_binlog_position, last_binlog_position, t_binlog_name, pg_engine, batch_data):
