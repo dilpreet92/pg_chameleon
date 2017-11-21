@@ -10,6 +10,7 @@ from distutils.sysconfig import get_python_lib
 from shutil import copy
 import threading
 import airbrake
+from airbrake.notifier import Airbrake
 
 class config_dir(object):
 	"""
@@ -135,7 +136,7 @@ class global_config(object):
 			self.airbrake_api_key = confdic["airbrake_api_key"]
 			self.airbrake_project_id = confdic["airbrake_project_id"]
 			self.environment = confdic["environment"]
-			self.airbrakeNotifier = airbrake.notifier(api_key = self.airbrake_api_key, project_id = self.airbrake_project_id, environment = self.environment)
+			self.airbrakeNotifier = Airbrake(api_key = self.airbrake_api_key, project_id = self.airbrake_project_id, environment = self.environment)
 			self.airbrakeLogger = airbrake.getLogger(api_key = self.airbrake_api_key, project_id = self.airbrake_project_id, environment = self.environment)
 
 			self.log_file = os.path.expanduser(confdic["log_dir"])+config_name+'.log'
