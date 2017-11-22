@@ -963,7 +963,7 @@ class mysql_engine(object):
       total_rows=count_rows["table_rows"]
       if total_rows == 0:
         return
-      if table_name == 'schema_migrations' or table_name == 'ar_internal_metadata':
+      if table_name == 'schema_migrations' or table_name == 'ar_internal_metadata' or table_name == 'app_store_developers':
         return
       copy_limit=100000
       primary_key_count = -sys.maxsize
@@ -1099,10 +1099,10 @@ class mysql_engine(object):
         total_rows=count_rows["table_rows"]
         if total_rows == 0:
           continue
-        if table_name == 'schema_migrations' or table_name == 'ar_internal_metadata':
+        if table_name == 'schema_migrations' or table_name == 'ar_internal_metadata' or table_name == 'app_store_developers':
           continue
         copy_limit=100000
-        primary_key_count = 1
+        primary_key_count = -sys.maxsize
         file_part = 1
         num_slices=int(total_rows//copy_limit)
         # range_slices=list(range(num_slices+1))
