@@ -10,6 +10,7 @@ from pymysqlreplication.event import RotateEvent
 from pg_chameleon import sql_token
 from os import remove
 import sys
+import pickle
 
 class mysql_connection(object):
   def __init__(self, global_config):
@@ -90,6 +91,7 @@ class mysql_engine(object):
     self.airbrakeNotifier = global_config.airbrakeNotifier
     self.airbrakeLogger = global_config.airbrakeLogger
     self.aws_bucket = global_config.aws_bucket
+    self.redisClient = global_config.redisClient
 
   def read_replica(self, batch_data, pg_engine):
     """
@@ -178,6 +180,16 @@ class mysql_engine(object):
           for token in self.sql_token.tokenised:
             write_ddl = True
             table_name = token["name"]
+            p_log_dict = self.redisClient.get(table_name)
+            log_dict = pickle.loads(p_log_dict)
+            binlog_file_position = int(binlogfile.split('.')[-1])
+            log_file_name = int(log_dict['t_binlog_name'].split('.')[-1])
+            last_binlog_position = log_dict['i_binlog_position']
+            if (binlog_file_position < log_file_name) or (binlog_file_position == log_file_name and binlogevent.packet.log_pos <= last_binlog_position):
+                continue
+            else:
+                log_dict = {'t_binlog_name': log_file, 'i_binlog_position': log_position}
+                self.redisClient.set(table_name, pickle.dumps(log_dict))
             if table_name in inc_tables:
               write_ddl = False
               log_seq = int(log_file.split('.')[1])
@@ -220,6 +232,16 @@ class mysql_engine(object):
           log_position=binlogevent.packet.log_pos
           table_name=binlogevent.table
           event_time=binlogevent.timestamp
+          p_log_dict = self.redisClient.get(table_name)
+          log_dict = pickle.loads(p_log_dict)
+          binlog_file_position = int(binlogfile.split('.')[-1])
+          log_file_name = int(log_dict['t_binlog_name'].split('.')[-1])
+          last_binlog_position = log_dict['i_binlog_position']
+          if (binlog_file_position < log_file_name) or (binlog_file_position == log_file_name and binlogevent.packet.log_pos <= last_binlog_position):
+              continue
+          else:
+              log_dict = {'t_binlog_name': log_file, 'i_binlog_position': log_position }
+              self.redisClient.set(table_name, pickle.dumps(log_dict))
           if table_name in inc_tables:
             table_consistent = False
             log_seq = int(log_file.split('.')[1])
@@ -856,6 +878,8 @@ class mysql_engine(object):
             size_insert=0
             group_insert=[]
             close_batch=True
+            my_stream.close()
+            return [master_data, close_batch]
 
     my_stream.close()
     if len(group_insert)>0:
@@ -911,22 +935,25 @@ class mysql_engine(object):
     self.get_master_status()
     t_binlog_name = self.master_status[0]['File']
     i_binlog_position = self.master_status[0]['Position']
-    sql_init_table = """
-      INSERT INTO
-        sch_chameleon.t_init_tables
-        (
-          v_table_name,
-          t_binlog_name,
-          i_binlog_position
-        )
-      VALUES
-        (
-          '%s',
-          '%s',
-          %s
-        )
-    """
-    pg_engine.pg_conn.pgsql_cur.execute(sql_init_table % (table_name, t_binlog_name, i_binlog_position, ))
+    log_dic = {'t_binlog_name': t_binlog_name, 'i_binlog_position': i_binlog_position }
+    p_log_dic = pickle.dumps(log_dic)
+    self.redisClient.set(table_name, p_log_dic)
+    # sql_init_table = """
+    #   INSERT INTO
+    #     sch_chameleon.t_init_tables
+    #     (
+    #       v_table_name,
+    #       t_binlog_name,
+    #       i_binlog_position
+    #     )
+    #   VALUES
+    #     (
+    #       '%s',
+    #       '%s',
+    #       %s
+    #     )
+    # """
+    # pg_engine.pg_conn.pgsql_cur.execute(sql_init_table % (table_name, t_binlog_name, i_binlog_position, ))
 
 
   def copy_table_data_table(self, pg_engine, copy_max_memory, table_name, lock_tables=True):

@@ -111,6 +111,7 @@ class pg_engine(object):
         self.table_metadata = table_metadata
         self.table_file = table_file
         self.s3_client = boto3.client('s3', aws_access_key_id=self.aws_key, aws_secret_access_key=self.aws_secret)
+        self.redisClient = global_config.redisClient
         self.type_dictionary = {
             'integer':'integer',
             'mediumint':'bigint',

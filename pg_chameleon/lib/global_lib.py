@@ -10,6 +10,7 @@ from distutils.sysconfig import get_python_lib
 from shutil import copy
 import threading
 import airbrake
+import redis
 from airbrake.notifier import Airbrake
 
 class config_dir(object):
@@ -138,7 +139,10 @@ class global_config(object):
 			self.environment = confdic["environment"]
 			self.airbrakeNotifier = Airbrake(api_key = self.airbrake_api_key, project_id = self.airbrake_project_id, environment = self.environment)
 			self.airbrakeLogger = airbrake.getLogger(api_key = self.airbrake_api_key, project_id = self.airbrake_project_id, environment = self.environment)
+			self.redisHost = confdic["redis_host"]
+			self.redisPort = confdic["redis_port"]
 
+			self.redisClient = redis.StrictRedis(host=self.redisHost, port=self.redisPort, db=self.dest_schema)
 			self.log_file = os.path.expanduser(confdic["log_dir"])+config_name+'.log'
 			self.pid_file = os.path.expanduser(confdic["pid_dir"])+"/"+config_name+".pid"
 			self.exit_file = os.path.expanduser(confdic["pid_dir"])+"/"+config_name+".lock"
@@ -467,7 +471,7 @@ class replica_engine(object):
 			Otherwise sleeps for the amount or seconds set in sleep_loop.
 
 		"""
-		self.my_eng.save_init_table_data(self.pg_eng)
+		# self.my_eng.save_init_table_data(self.pg_eng)
 		replica_possible = self.my_eng.check_mysql_config()
 		if replica_possible:
 			self.logger.info("Configuration on MySQL allows replica.")
@@ -579,8 +583,9 @@ class replica_engine(object):
 		"""
 		if truncate_tables:
 			self.pg_eng.truncate_tables()
-		self.my_eng.copy_table_data(self.pg_eng, self.global_config.copy_max_memory)
+		self.my_eng.get_master_status()
 		self.pg_eng.save_master_status(self.my_eng.master_status, cleanup=True)
+		self.my_eng.copy_table_data(self.pg_eng, self.global_config.copy_max_memory)
 
 
 	def sync_tables(self, table):

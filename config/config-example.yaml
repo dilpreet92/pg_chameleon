@@ -17,6 +17,8 @@ aws_bucket: 'xxxxx'
 airbrake_api_key: 'xxxx'
 airbrake_project_id: 'xxxx'
 environment: 'xxxx'
+redis_host: 'xxxx'
+redis_port: 'xxxx'
 
 #seconds between each replica loop
 sleep_loop: 10 
