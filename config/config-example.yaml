@@ -19,6 +19,7 @@ airbrake_project_id: 'xxxx'
 environment: 'xxxx'
 redis_host: 'xxxx'
 redis_port: 'xxxx'
+redis_db_index: 0
 
 #seconds between each replica loop
 sleep_loop: 10 
